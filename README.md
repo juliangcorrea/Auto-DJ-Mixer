@@ -21,5 +21,5 @@ Before running the project locally, make sure you have the following installed:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/auto-dj-mixer.git
+   git clone https://github.com/juliangcorrea/auto-dj-mixer.git
 
