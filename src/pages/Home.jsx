@@ -1,13 +1,9 @@
-import Header from '../components/layout/Header'
-import Footer from '../components/layout/Footer'
 import { Link } from "react-router-dom";
 import { FaGithub, FaLinkedin } from "react-icons/fa";
 
 export default function HomePage() {
   return (
     <div className="flex flex-col items-center w-full">
-
-      <Header />
 
       {/* Hero Section */}
       <section className="relative w-full h-[calc(100vh-64px)] flex items-center bg-gray-800 text-white px-8">
@@ -83,8 +79,6 @@ export default function HomePage() {
           Try It Now
         </Link>
       </section>
-
-      <Footer />
 
     </div>
   );
