@@ -1,29 +1,48 @@
 import { useState } from "react";
+import StyledButton from "../components/common/StyledButton";
+import LoadingOverlay from "../components/common/LoadingOverlay"; // Import the LoadingOverlay
 
 export default function Mixer() {
   const [files, setFiles] = useState([]);
+  const [isLoading, setIsLoading] = useState(false); // State to control the loading animation
+  
   const maxFiles = 5;
-  const maxSize = 50 * 1024 * 1024; // 50MB limit
-
+  const maxSize = 50 * 1024 * 1024
   const totalSize = files.reduce((acc, file) => acc + file.size, 0);
-  const fileCount = files.length;
-
-  // Handle file selection and validation
+  const fileCount = files.length
+  
   const handleFileChange = (event) => {
-    const selectedFiles = Array.from(event.target.files);
-    if (fileCount + selectedFiles.length > maxFiles) return;
-    setFiles((prevFiles) => [...prevFiles, ...selectedFiles]);
+    const selectedFiles = Array.from(event.target.files)
+    if (fileCount + selectedFiles.length > maxFiles) return
+    const validFiles = selectedFiles.filter((file) => {
+      if (!file.type.startsWith("audio/")) {
+        alert(`${file.name} is not a valid audio file.`);
+        return false;
+      }
+      return true;
+    })
+    setFiles((prevFiles) => [...prevFiles, ...validFiles])
   };
+  
 
   // Handle file deletion
   const handleDelete = (index) => {
     setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
   };
 
+  // Handle the mix generation (trigger loading)
+  const handleGenerateMix = () => {
+    setIsLoading(true); // Start loading animation
+    setTimeout(() => {
+      // Simulate mixing process (e.g., using a setTimeout here for testing)
+      setIsLoading(false); // Stop loading animation after 3 seconds
+    }, 3000);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 p-6">
+    <div className="flex flex-col lg:flex-row min-h-screen items-center justify-center bg-gray-100 p-6">
       {/* Left Section: File Upload */}
-      <div className="w-3/5 max-w-lg bg-white p-6 rounded-lg shadow-md">
+      <div className="w-full min-h-[40vh] lg:w-3/5 max-w-lg bg-white p-6 rounded-lg shadow-md mb-6 lg:mb-0">
         <h2 className="text-2xl font-semibold mb-4">Upload Your Songs</h2>
         <div className="border-2 border-dashed border-gray-300 p-6 rounded-lg bg-gray-50 cursor-pointer">
           <input
@@ -38,7 +57,7 @@ export default function Mixer() {
             Drag & Drop files here or <span className="text-blue-500 underline">browse</span>
           </label>
         </div>
-        
+
         {/* Upload Progress */}
         <div className="mt-4 w-full">
           <p className="text-gray-600 text-sm">
@@ -69,7 +88,7 @@ export default function Mixer() {
       </div>
 
       {/* Right Section: Instructions and Mixing Button */}
-      <div className="w-2/5 max-w-lg bg-white p-6 rounded-lg shadow-md ml-10">
+      <div className="w-full min-h-[40vh] lg:w-2/5 max-w-lg bg-white p-6 rounded-lg shadow-md lg:ml-10 flex flex-col items-center">
         <h3 className="text-xl font-semibold mb-4">Instructions</h3>
         <ol className="text-sm text-gray-600 list-decimal pl-4">
           <li>Upload up to {maxFiles} audio files (maximum size of {maxSize / (1024 * 1024)}MB per file).</li>
@@ -78,10 +97,11 @@ export default function Mixer() {
         </ol>
 
         {/* Mix Button */}
-        <button className="w-full mt-6 py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-          Start Mixing
-        </button>
+        <StyledButton text="Generate Mix" style="mt-5" onClick={handleGenerateMix} />
       </div>
+
+      {/* Loading Overlay */}
+      <LoadingOverlay isLoading={isLoading} />
     </div>
   );
 }

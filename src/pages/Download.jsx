@@ -1,4 +1,5 @@
 import { useState } from "react";
+import StyledButton from "../components/common/StyledButton";
 
 export default function Download() {
   const [isMixing, setIsMixing] = useState(false);
@@ -10,15 +11,15 @@ export default function Download() {
 
     // Simulate a mix generation process
     setTimeout(() => {
-      setMixUrl("https://www.example.com/path-to-mix.mp3"); // You will use the actual URL after generating the mix
+      setMixUrl("https://www.example.com/path-to-mix.mp3")
       setIsMixing(false);
-    }, 3000); // Simulate a 3-second wait
+    }, 3000)
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 p-6">
+    <div className="flex flex-col min-h-screen items-center justify-center bg-gray-100 p-6">
       {/* Centered Box for the Download Section */}
-      <div className="w-3/5 max-w-lg bg-white p-6 rounded-lg shadow-md text-center">
+      <div className="w-full lg:w-3/5 max-w-lg bg-white p-6 rounded-lg shadow-md text-center">
         <h2 className="text-2xl font-semibold mb-4">Your Mix is Ready!</h2>
 
         {/* If the mix is being generated */}
@@ -44,14 +45,7 @@ export default function Download() {
               >
                 Download Mix
               </a>
-            ) : (
-              <button
-                onClick={generateMix}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Generate Mix
-              </button>
-            )}
+            ) : ( <StyledButton text="Generate Mix" onClick={generateMix} />)}
           </div>
         )}
       </div>
