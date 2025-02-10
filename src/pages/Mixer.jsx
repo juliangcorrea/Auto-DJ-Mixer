@@ -1,22 +1,39 @@
 import { useState } from "react";
-import StyledButton from "../components/common/StyledButton";
-import LoadingOverlay from "../components/common/LoadingOverlay"; // Import the LoadingOverlay
+import StyledButton from "../components/common/StyledButton"
+import LoadingOverlay from "../components/common/LoadingOverlay"
+import ErrorDialog from "../components/common/ErrorDialog"
 
 export default function Mixer() {
-  const [files, setFiles] = useState([]);
-  const [isLoading, setIsLoading] = useState(false); // State to control the loading animation
+  const [files, setFiles] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [showError, setShowError] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
   
   const maxFiles = 5;
   const maxSize = 50 * 1024 * 1024
+  const maxTotalSize = 200 * 1024 * 1024
   const totalSize = files.reduce((acc, file) => acc + file.size, 0);
   const fileCount = files.length
   
   const handleFileChange = (event) => {
     const selectedFiles = Array.from(event.target.files)
+    if (selectedFiles.length === 0) {
+      alert("Please select at least one file.");
+      return;
+    }
+    const newTotalSize = selectedFiles.reduce((acc, file) => acc + file.size, totalSize)
+    if (newTotalSize > maxTotalSize) {
+      alert(`The total file size cannot exceed ${(maxTotalSize / (1024 * 1024)).toFixed(2)}MB.`)
+      return
+    }
     if (fileCount + selectedFiles.length > maxFiles) return
     const validFiles = selectedFiles.filter((file) => {
-      if (!file.type.startsWith("audio/")) {
-        alert(`${file.name} is not a valid audio file.`);
+      if (file.type !== "audio/mpeg") {
+        alert(`${file.name} is not a valid mp3 file.`);
+        return false;
+      }
+      if (file.size > maxSize) {
+        alert(`${file.name} exceeds the 50MB size limit.`);
         return false;
       }
       return true;
@@ -37,7 +54,16 @@ export default function Mixer() {
       // Simulate mixing process (e.g., using a setTimeout here for testing)
       setIsLoading(false); // Stop loading animation after 3 seconds
     }, 3000);
-  };
+  }
+
+  const simulateError = () => {
+    setErrorMessage("An unexpected error occurred. Please try again later.");
+    setShowError(true)
+  }
+
+  const handleCloseErrorDialog = () => {
+    setShowError(false);
+  }
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen items-center justify-center bg-gray-100 p-6">
@@ -48,7 +74,7 @@ export default function Mixer() {
           <input
             type="file"
             multiple
-            accept="audio/*"
+            accept="audio/mp3"
             onChange={handleFileChange}
             className="hidden"
             id="fileInput"
@@ -98,10 +124,13 @@ export default function Mixer() {
 
         {/* Mix Button */}
         <StyledButton text="Generate Mix" style="mt-5" onClick={handleGenerateMix} />
+        <button onClick={simulateError} className="mt-5 px-4 py-2 bg-red-500 text-white rounded cursor-pointer">Simulate Error</button>
       </div>
 
       {/* Loading Overlay */}
       <LoadingOverlay isLoading={isLoading} />
+
+      {showError && (<ErrorDialog message={errorMessage} onClose={handleCloseErrorDialog} />)}
     </div>
   );
 }
