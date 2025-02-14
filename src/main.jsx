@@ -6,6 +6,7 @@ import App from './App.jsx'
 import HomePage from './pages/Home'
 import Mixer from './pages/Mixer'
 import Download from './pages/Download'
+import TestMixer from './pages/Testing.jsx';
 
 const router = createBrowserRouter([
   {
@@ -23,6 +24,10 @@ const router = createBrowserRouter([
       {
         path: "/download",
         element: <Download />
+      },
+      {
+        path: "/testing",
+        element: <TestMixer />
       }
     ]
   }

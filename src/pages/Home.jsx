@@ -18,6 +18,7 @@ export default function HomePage() {
           <h1 className="text-4xl sm:text-5xl font-bold mb-4">Seamless Song Mixing</h1>
           <p className="text-lg sm:text-xl mb-6">Upload your tracks and let our AI create smooth transitions.</p>
           <StyledLink to="/mixer" text="Try it now" />
+          <StyledLink to="/testing" text="here" />
         </div>
       </section>
 

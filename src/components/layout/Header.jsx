@@ -23,17 +23,17 @@ function Header() {
         <nav className={`md:block ${isMenuOpen ? 'block' : 'hidden'}`}>
           <ul className="flex gap-6">
             <li>
-              <NavLink to="/" activeClassName="text-blue-400">
+              <NavLink to="/" activeclassname="text-blue-400">
                 Home
               </NavLink>
             </li>
             <li>
-              <NavLink to="/mixer" activeClassName="text-blue-400">
+              <NavLink to="/mixer" activeclassname="text-blue-400">
                 Mixer
               </NavLink>
             </li>
             <li>
-              <NavLink to="/download" activeClassName="text-blue-400">
+              <NavLink to="/download" activeclassname="text-blue-400">
                 Download
               </NavLink>
             </li>
