@@ -1,39 +1,111 @@
 // import Essentia from 'essentia.js/dist/essentia.js-core.es.js'; 
 // import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
 // import { useState } from "react";
-// import { analyzeSongs } from '../logic/songAnalysis';
-// import calculateMixingTimestamps from '../utils/songTiming';
-// async function processAudio(audioBuffer) {
-//     const essentia = new Essentia(EssentiaWASM)
-//     const channelData = audioBuffer.getChannelData(0)
-//     const audioVector = essentia.arrayToVector(channelData)
-    
-//     console.log('starting extraction...')
-//     const beatTracker = essentia.BeatTrackerDegara(audioVector)
-//     const beatsArray = Array.from(essentia.vectorToArray(beatTracker.ticks))
-//     const roundedBeats = beatsArray.map(beat => beat.toFixed(2))
-//     //console.log(roundedBeats)
-//     // const algorithms = essentia.algorithmNames;
-//     // console.log(algorithms)
-//     // const rhythmExtractor = essentia.RhythmExtractor2013(audioVector);
-//     // const keyExtractor = essentia.KeyExtractor(audioVector);
-//     // const mfcc = essentia.MFCC(audioVector);
-//     // const pitchMelodia = essentia.PitchMelodia(audioVector);
-//     // const loudness = essentia.Loudness(audioVector);
-//     // const spectralPeaks = essentia.SpectralPeaks(audioVector);
 
-//     // Storing the results in an object
-//     const analysisResults = {
-//         beats: roundedBeats,
-//         // rhythm: rhythmExtractor,
-//         // key: keyExtractor,
-//         // mfcc: mfcc,
-//         // pitch: pitchMelodia,
-//         // loudness: loudness,
-//         // spectralPeaks: spectralPeaks,
+// async function processAudio(audioBuffer) {
+//     const essentia = new Essentia(EssentiaWASM);
+//     const sampleRate = audioBuffer.sampleRate;
+//     const channelData = audioBuffer.getChannelData(0);
+//     const totalSamples = channelData.length;
+//     const segmentDuration = 10; // Target segment duration in seconds
+//     const segmentSize = segmentDuration * sampleRate; // Size of each segment in samples
+
+//     // Calculate the number of segments (round up to ensure >= 10 seconds per segment)
+//     const numSegments = Math.ceil(totalSamples / segmentSize);
+//     const segments = [];
+    
+//     // Loop through the audio data and create segments
+//     for (let i = 0; i < numSegments; i++) {
+//         const start = i * segmentSize;
+//         const end = Math.min((i + 1) * segmentSize, totalSamples);
+//         const segmentData = channelData.slice(start, end); // Extract segment data
+        
+//         const segmentVector = essentia.arrayToVector(segmentData);
+
+//         // Extract audio features for each segment
+//         const features = await extractFeatures(essentia, segmentVector);
+//         segments.push({
+//             start,
+//             end,
+//             features
+//         });
 //     }
-//     return analysisResults;
+
+//     // Group similar adjacent segments based on feature comparison
+//     const groupedSegments = groupSimilarSegments(segments);
+
+//     console.log('Grouped Segments:', groupedSegments);
+//     return groupedSegments;
 // }
+
+// async function extractFeatures(essentia, segmentVector) {
+//     const algorithmsToExtract = [
+//         'BeatTrackerDegara',
+//         'RhythmExtractor2013',
+//         'KeyExtractor',
+//         'Loudness',
+//         'Flux',
+//         'RollOff',
+//         'Energy',
+//         'DynamicComplexity'
+//     ];
+    
+//     const features = {};
+//     const algorithms = essentia.algorithmNames;
+
+//     for (const algo of algorithmsToExtract) {
+//         try {
+//             if (algorithms.includes(algo)) {
+//                 const result = essentia[algo](segmentVector);
+//                 if (result) {
+//                     if (result.ticks) {
+//                         const beatsArray = Array.from(essentia.vectorToArray(result.ticks));
+//                         features[algo] = beatsArray.map(beat => beat.toFixed(2));
+//                     } else {
+//                         features[algo] = result;
+//                     }
+//                 }
+//             } else {
+//                 console.warn(`Algorithm ${algo} not available in Essentia.js`);
+//             }
+//         } catch (error) {
+//             console.error(`Error with ${algo}:`, error);
+//         }
+//     }
+//     return features;
+// }
+
+// function groupSimilarSegments(segments) {
+//     const threshold = 0.1; // Define a threshold for grouping similar segments
+//     let grouped = [];
+//     let currentGroup = [segments[0]];
+
+//     for (let i = 1; i < segments.length; i++) {
+//         const prevSegment = segments[i - 1];
+//         const currSegment = segments[i];
+
+//         // Compare the loudness between adjacent segments (or any other feature you want to compare)
+//         const prevLoudness = prevSegment.features.Loudness || 0;
+//         const currLoudness = currSegment.features.Loudness || 0;
+
+//         // If the difference is smaller than the threshold, group the segments together
+//         if (Math.abs(prevLoudness - currLoudness) < threshold) {
+//             currentGroup.push(currSegment);
+//         } else {
+//             // Otherwise, push the current group and start a new one
+//             grouped.push(currentGroup);
+//             currentGroup = [currSegment];
+//         }
+//     }
+
+//     // Push the last group
+//     if (currentGroup.length > 0) {
+//         grouped.push(currentGroup);
+//     }
+
+//     return grouped;
+// }
+
 // const TestMixer = () => {
 //     const [files, setFiles] = useState([]);
 
@@ -46,173 +118,20 @@
 //             console.log("No files uploaded.");
 //             return;
 //         }
-//         const allAnalysisResults = []
+
+//         const allAnalysisResults = [];
 //         for (const file of files) {
 //             try {
 //                 const arrayBuffer = await file.arrayBuffer();
 //                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 //                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                 
-//                 // Now use the new processAudio function from File 2
-//                 const analysisResults = await processAudio(audioBuffer);
-//                 allAnalysisResults.push({ beats: analysisResults.beats, name: file.name });
-//                 //console.log(analysisResults)
-//             } catch (error) {
-//                 console.error(`Error processing file ${file.name}:`, error);
-//             }
-//         }
-//         if (allAnalysisResults.length === 2) {
-//             const [song1Analysis, song2Analysis] = allAnalysisResults;
-//             const match = await analyzeSongs(song1Analysis.beats, song2Analysis.beats);
-//             console.log("Best Match between the two songs:", match);
-
-//             match.forEach(element => {
-//                 const result = calculateMixingTimestamps(song1Analysis.beats, element.seg1.beats, song2Analysis.beats, element.seg2.beats);
-//                 console.log(song1Analysis.name, "Segment 1 Start in Song 1:", result.song1Segment1Start);
-//                 console.log(song2Analysis.name, "Segment 2 Start in Song 2:", result.song2Segment2Start);
-//             });
-//         }
-//     };
-
-//     return (
-//         <div className="flex flex-col items-center gap-4 p-4">
-//             <input
-//                 type="file"
-//                 accept="audio/*"
-//                 multiple
-//                 onChange={handleFileChange}
-//                 className="border p-2"
-//             />
-//             <button
-//                 onClick={processFiles}
-//                 className="bg-blue-500 text-white p-2 rounded cursor-pointer"
-//             >
-//                 Process Files
-//             </button>
-//         </div>
-//     );
-// };
-// export default TestMixer;
-
-// import Essentia from 'essentia.js/dist/essentia.js-core.es.js'; 
-// import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
-// import { useState } from "react";
-// import { analyzeSongs } from '../logic/songAnalysis';
-// import calculateMixingTimestamps from '../utils/songTiming';
-
-// async function processAudio(audioBuffer) {
-//     const essentia = new Essentia(EssentiaWASM);
-//     const channelData = audioBuffer.getChannelData(0);
-//     const audioVector = essentia.arrayToVector(channelData);
-    
-//     console.log('starting extraction...');
-//     const beatTracker = essentia.BeatTrackerDegara(audioVector);
-//     const beatsArray = Array.from(essentia.vectorToArray(beatTracker.ticks));
-//     const roundedBeats = beatsArray.map(beat => beat.toFixed(2));
-
-//     const analysisResults = {
-//         beats: roundedBeats,
-//     };
-//     return analysisResults;
-// }
-
-// async function processAudio(audioBuffer) {
-//     const essentia = new Essentia(EssentiaWASM);
-//     const channelData = audioBuffer.getChannelData(0);
-//     const audioVector = essentia.arrayToVector(channelData);
-
-//     console.log('Starting extraction...');
-
-//     // Use RhythmExtractor2013 to get beats and BPM
-//     const rhythmData = essentia.RhythmExtractor2013(audioVector);
-//     let beatsArray = Array.from(essentia.vectorToArray(rhythmData.ticks));
-//     let detectedBPM = rhythmData.bpm;
-
-//     // Step 1: Reject BPM values that are unnaturally high
-//     if (detectedBPM > 160) {
-//         detectedBPM /= 2; // Adjust if BPM is too high
-//     }
-
-//     // Step 2: Smooth sudden BPM changes
-//     let filteredBeats = [];
-//     const minBeatSpacing = 0.3; // Minimum time (in seconds) between beats
-//     beatsArray.forEach((beat, index) => {
-//         if (index === 0 || beat - beatsArray[index - 1] > minBeatSpacing) {
-//             filteredBeats.push(beat.toFixed(2));
-//         }
-//     });
-
-//     return {
-//         beats: filteredBeats,
-//         bpm: detectedBPM.toFixed(1),
-//     };
-// }
-
-
-// const TestMixer = () => {
-//     const [files, setFiles] = useState([]);
-//     const [fileNames, setFileNames] = useState([]); // Store file names to display in order
-
-//     const handleFileChange = (event) => {
-//         const uploadedFiles = Array.from(event.target.files);
-
-//         // Prevent adding more than 5 files
-//         if (files.length + uploadedFiles.length <= 5) {
-//             const newFiles = [...files, ...uploadedFiles];
-//             setFiles(newFiles);
-//             setFileNames(newFiles.map(file => file.name)); // Update file names list
-//         } else {
-//             alert("You can upload a maximum of 5 files.");
-//         }
-//     };
-
-//     const removeFile = (index) => {
-//         const newFiles = files.filter((_, fileIndex) => fileIndex !== index);
-//         setFiles(newFiles);
-//         setFileNames(newFiles.map(file => file.name)); // Update file names list after removal
-//     };
-
-//     const processFiles = async () => {
-//         if (files.length === 0) {
-//             console.log("No files uploaded.");
-//             return;
-//         }
-//         const allAnalysisResults = []
-//         let firstSongLength = 0
-//         let secondSongLength = 0
-//         for (let index = 0; index < files.length; index++) {
-//             const file = files[index];
-//             try {
-//                 const arrayBuffer = await file.arrayBuffer();
-//                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-//                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+//                 const results = await processAudio(audioBuffer);
+//                 allAnalysisResults.push({ name: file.name, results });
                 
-//                 // Now use the processAudio function
-//                 const analysisResults = await processAudio(audioBuffer);
-//                 allAnalysisResults.push({ beats: analysisResults.beats, name: file.name, index });
-
-//                 if (allAnalysisResults.length === 1) {
-//                     firstSongLength = audioBuffer.duration;
-//                 } else if (allAnalysisResults.length === 2) {
-//                     secondSongLength = audioBuffer.duration;
-//                 }
 //             } catch (error) {
 //                 console.error(`Error processing file ${file.name}:`, error);
 //             }
-//         }
-
-//         if (allAnalysisResults.length === 2) {
-//             const [song1Analysis, song2Analysis] = allAnalysisResults;
-
-//             // Use the order of files for processing
-//             const match = await analyzeSongs(song1Analysis, song2Analysis.beats, firstSongLength, secondSongLength);
-//             console.log("Best Match between the two songs:", match);
-
-//             match.forEach(element => {
-//                 const result = calculateMixingTimestamps(song1Analysis.beats, element.seg1.beats, song2Analysis.beats, element.seg2.beats);
-//                 console.log(song1Analysis.name, "Segment 1 Start in Song 1:", result.song1Segment1Start);
-//                 console.log(song2Analysis.name, "Segment 2 Start in Song 2:", result.song2Segment2Start);
-//             });
 //         }
 //     };
 
@@ -231,30 +150,14 @@
 //             >
 //                 Process Files
 //             </button>
-
-//             {files.length > 0 && (
-//                 <div className="mt-4">
-//                     <h3>Uploaded Songs (in order):</h3>
-//                     <ul>
-//                         {fileNames.map((fileName, index) => (
-//                             <li key={index} className="flex items-center gap-2">
-//                                 {`Song ${index + 1}: ${fileName}`}
-//                                 <button
-//                                     onClick={() => removeFile(index)}
-//                                     className="bg-red-500 text-white p-1 rounded text-xs"
-//                                 >
-//                                     Remove
-//                                 </button>
-//                             </li>
-//                         ))}
-//                     </ul>
-//                 </div>
-//             )}
 //         </div>
 //     );
 // };
 
 // export default TestMixer;
+
+
+
 
 
 
@@ -264,206 +167,347 @@
 
 
 import { useState } from "react";
-import Essentia from 'essentia.js/dist/essentia.js-core.es.js'; 
-import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
-import MusicTempo from 'music-tempo';
 import Meyda from 'meyda';
 
+async function processAudioMeyda(audioBuffer) {
+  console.log('Starting extraction with Meyda....');
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createBufferSource();
+  source.buffer = audioBuffer;
 
-async function processAudioEssentia(audioBuffer) {
-  const essentia = new Essentia(EssentiaWASM);
-  const channelData = audioBuffer.getChannelData(0);
-  const audioVector = essentia.arrayToVector(channelData);
+  // Step 1: Get the sample rate
+  const sampleRate = audioContext.sampleRate;
 
-  console.log('Starting extraction with Essentia...');
+  // Step 2: Define the buffer size and desired segment duration
+  const bufferSize = 1024;
+  const desiredSegmentDuration = 1; // in seconds
 
-  // Use RhythmExtractor2013 to get beats and BPM
-  const rhythmData = essentia.RhythmExtractor2013(audioVector);
-  let beatsArray = Array.from(essentia.vectorToArray(rhythmData.ticks));
-  let detectedBPM = rhythmData.bpm;
+  // Step 3: Calculate the frame duration
+  const frameDuration = bufferSize / sampleRate;
 
-  // Step 1: Reject BPM values that are unnaturally high
-  if (detectedBPM > 160) {
-    detectedBPM /= 2; // Adjust if BPM is too high
-  }
+  // Step 4: Calculate the frame rate
+  const frameRate = 1 / frameDuration;
 
-  // Step 2: Smooth sudden BPM changes
-  let filteredBeats = [];
-  const minBeatSpacing = 0.3; // Minimum time (in seconds) between beats
-  beatsArray.forEach((beat, index) => {
-    if (index === 0 || beat - beatsArray[index - 1] > minBeatSpacing) {
-      filteredBeats.push(beat.toFixed(2));
-    }
+  // Step 5: Calculate the segment length (number of frames required for 10 seconds)
+  const segmentLength = Math.round(frameRate * desiredSegmentDuration);
+
+  // Log the segment length to check the calculation
+  console.log('Calculated segmentLength:', segmentLength);
+
+  let songData = {
+    featureHistory: [],
+    segmentBoundaries: [],  // Store fixed-length segments
+  };
+
+  // Create Meyda Analyzer
+  const analyzer = Meyda.createMeydaAnalyzer({
+    audioContext: audioContext,
+    source: source,
+    bufferSize: 1024,
+    featureExtractors: ['rms', 'spectralCentroid', 'spectralRolloff', 'zcr', 'energy'],
+    callback: (features) => {
+      processFeatures(features, songData);
+    },
   });
 
-  console.log("Essentia Results:");
-  console.log("Beats:", filteredBeats);
-  console.log("BPM:", detectedBPM.toFixed(1));
+  // Start audio playback and feature extraction immediately
+  source.start();
+  analyzer.start();
+
+  function processFeatures(features, songData) {
+    if (!features) return;
+    songData.featureHistory.push({
+      time: audioContext.currentTime,
+      energy: features.energy,
+      rms: features.rms,
+      spectralCentroid: features.spectralCentroid,
+      spectralRolloff: features.spectralRolloff,
+      zcr: features.zcr
+    });
+
+    // Only create segment boundaries by fixed length
+    createSegmentByLength(songData, segmentLength);
+  }
+
+  // Wait until the song finishes
+  await new Promise(resolve => setTimeout(resolve, audioBuffer.duration * 1000));
+  analyzer.stop();
+
+  console.log('Segment Boundaries After Length Check:', songData.segmentBoundaries);
+
+  // After length-based segmentation, classify by type
+  const classifiedSegments = createSegmentByType(songData.segmentBoundaries);
+  console.log('Classified Segments:', classifiedSegments);
+  return classifiedSegments; // Return the classified segments after type categorization
 }
 
-async function processAudioMT(audioBuffer) {
-    console.log('Processing with MT...')
-    try {
-      const channelData = audioBuffer.getChannelData(0); // Get audio data from the first channel
-      const mt = new MusicTempo(channelData);
-  
-      const bpm = mt.tempo;
-      const beats = mt.beats;
-  
-      if (bpm && beats) {
-        console.log("MusicTempo Results:");
-        console.log("BPM:", bpm); // Tempo in BPM
-        console.log("Beats:", beats); // Array of beat times
-        return {
-          bpm,
-          beats
-        };
-      } else {
-        throw new Error("Error extracting tempo and beats with MusicTempo.");
+function createSegmentByLength(songData, segmentLength) {
+  if (songData.featureHistory.length >= segmentLength) {
+    // Calculate the averages for this segment
+    let avgEnergy = songData.featureHistory.reduce((sum, f) => sum + f.energy, 0) / songData.featureHistory.length;
+    let avgSpectralCentroid = songData.featureHistory.reduce((sum, f) => sum + (f.spectralCentroid || 0), 0) / songData.featureHistory.length;
+    let avgRms = songData.featureHistory.reduce((sum, f) => sum + f.rms, 0) / songData.featureHistory.length;
+    let avgSpectralRolloff = songData.featureHistory.reduce((sum, f) => sum + f.spectralRolloff, 0) / songData.featureHistory.length;
+    let avgZcr = songData.featureHistory.reduce((sum, f) => sum + f.zcr, 0) / songData.featureHistory.length;
+
+    // Directly push the segment boundary without any difference check
+    songData.segmentBoundaries.push({
+      time: songData.featureHistory[0].time,
+      energy: avgEnergy,
+      spectralCentroid: avgSpectralCentroid,
+      rms: avgRms,
+      spectralRolloff: avgSpectralRolloff,
+      zcr: avgZcr
+    });
+
+    // Clear the feature history while keeping reference
+    songData.featureHistory.length = 0;
+  }
+}
+
+function createSegmentByType(segmentBoundaries) {
+  // If there are fewer than two boundaries, we cannot create any segments.
+  if (segmentBoundaries.length < 2) return [];
+  const lastBoundary = segmentBoundaries[segmentBoundaries.length - 1]
+  segmentBoundaries.push(lastBoundary);
+
+  const segments = [];
+  let prev = null; // Will store the previous segment for condition checks
+
+  function checkConditionals(energyLimitMin, energyLimitMax, rmsLimitMin, rmsLimitMax, 
+    spectralCentroidLimitMin, spectralCentroidLimitMax, spectralRolloffLimitMin,
+    spectralRolloffLimitMax, zcrLimitMin, zcrLimitMax, element, checkType = true){
+    let passes = 0
+    const checks = {
+      energy: [energyLimitMin, energyLimitMax],
+      rms: [rmsLimitMin, rmsLimitMax],
+      spectralCentroid: [spectralCentroidLimitMin, spectralCentroidLimitMax],
+      spectralRolloff: [spectralRolloffLimitMin, spectralRolloffLimitMax],
+      zcr: [zcrLimitMin, zcrLimitMax]
+    }
+
+    Object.entries(checks).forEach(([key, [min, max]]) => {
+      if (element[key] >= min && element[key] <= max) {
+        passes++;
       }
-    } catch (error) {
-      console.error(error);
-    }
-}
+    });
 
-async function processAudioMeyda(audioBuffer) {
-    console.log('Starting extraction with Meyda....');
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createBufferSource();
-    source.buffer = audioBuffer
-    const analyzer = Meyda.createMeydaAnalyzer({
-        audioContext: audioContext,
-        source: source,
-        bufferSize: 1024,
-        featureExtractors: [
-            'rms',
-            'spectralCentroid',
-            'spectralRolloff',
-            'zcr',
-            'energy',
+    if(checkType){
+      return passes >= 3;
+    } else if (!checkType){
+      return passes;
+    } else {
+      return undefined
+    }
+  }
+
+  function checkStructure(currentElement, i, prev, next, segmentBoundaries){
+    const matches = []
+    const doubleMatches = []
+    const divisions = 
+      {
+        Intro: [
+          (currentElement, i, prev) => {
+          if (
+            i === 0 || prev && prev.type == "Intro" && checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement)
+          ) {
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement, checkType)
         ],
-        callback: (features) => {
-            processFeatures(features);
-        },
+        Drop: [
+          (currentElement) => {
+          if(currentElement.start > 10 && checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement)){
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement, checkType)
+        ],
+        Verse: [
+          (currentElement) => {
+          if (checkConditionals(1, 5, 0.03, 0.07, 30, 70, 13000, 14400, 40, 70, currentElement)) {
+            return true
+          }
+          return false
+        }, (currentElement, checkType) =>checkConditionals(1, 5, 0.03, 0.07, 30, 70, 13000, 14400, 40, 70, currentElement, checkType)
+        ],
+        BuildUp: [
+          (currentElement) => {
+          if(checkConditionals(5, 9, 0.07, 0.1, 50, 70, 13600, 14000, 40, 80, currentElement)){
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(5, 9, 0.07, 0.1, 50, 70, 13600, 14000, 40, 80, currentElement, checkType)
+        ],
+        Chorus: [
+          (currentElement) => {
+          if (checkConditionals(9, 25, 0.09, 0.2, 40, 70, 13200, 15000, 40, 70, currentElement) ) {
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(9, 25, 0.09, 0.2, 40, 70, 13200, 15000, 40, 70, currentElement, checkType)
+        ],
+        Break: [
+          (currentElement) => {
+          if (checkConditionals(14, 18, 0.10, 0.13, 50, 60, 14000, 14800, 30, 50, currentElement)) {
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(14, 18, 0.10, 0.13, 50, 60, 14000, 14800, 30, 50, currentElement, checkType)
+        ],
+        Bridge: [
+          (currentElement) => {
+          if (checkConditionals(3, 7.5, 0.05, 0.09, 60, 75, 13500, 14600, 50, 70, currentElement)) {
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(3, 7.5, 0.05, 0.09, 60, 75, 13500, 14600, 50, 70, currentElement, checkType)
+        ],
+        Outro: [
+          (currentElement, i, prev, next) => {
+          if(currentElement.start > ((segmentBoundaries[segmentBoundaries.length -2].time/100)*80) && 
+          (((prev && currentElement.energy < prev.energy * 0.9) ||
+            (next && currentElement.energy > next.energy * 1.3)) || 
+            currentElement.energy < 1)) {
+            return true
+          }
+          return false
+        }, (currentElement, checkType) => checkConditionals(0, 1, 0, 0.02, 0, 500, 12000, 15000, 0, 500, currentElement, checkType)
+        ]
+      }
+    
+    Object.keys(divisions).forEach(type => {
+      if(divisions[type][0](currentElement, i, prev, next) == true){
+        matches.push(type)
+      }
     })
-    analyzer.start();
-    source.start();
 
+    if(matches.length <= 0){
+      currentElement.type = "Transition"
+    } else if(matches.length == 1){
+      currentElement.type = matches[0]
+    } else if (matches.length > 1){
+        matches.forEach(type => {
+            const possibleMatch = [type, divisions[type][1](currentElement, false)]
+            doubleMatches.push(possibleMatch)
+      })
+      const highestMatch = Math.max(...doubleMatches.map((entry) => entry[1])); // Use entry[1] for score
+      const highestMatchTypes = doubleMatches
+        .filter((entry) => entry[1] === highestMatch) // Filter based on the score
+        .map((entry) => entry[0]); // Extract the type (entry[0])
+      if(highestMatchTypes.length == 0){
+        currentElement.type = "Transition"
+        doubleMatches.push('done')
 
-
-    let featureHistory = [];
-    let segmentBoundaries = [];
-    function processFeatures(features) {
-        if (!features) return;
-        // Store feature data in an array
-        featureHistory.push({
-            time: audioContext.currentTime,
-            energy: features.energy,
-            rms: features.rms,
-            spectralCentroid: features.spectralCentroid,
-            spectralRolloff: features.spectralRolloff,
-            zcr: features.zcr
-        });
-
-        // Group features into segments every 5 seconds (adjustable)
-        if (featureHistory.length >= 435) {
-            let avgEnergy = featureHistory.reduce((sum, f) => sum + f.energy, 0) / featureHistory.length;
-            let avgSpectralCentroid = featureHistory.reduce((sum, f) => sum + (f.spectralCentroid || 0), 0) / featureHistory.length;
-            let avgRms = featureHistory.reduce((sum, f) => sum + f.rms, 0) / featureHistory.length;
-            let avgSpectralRolloff = featureHistory.reduce((sum, f) => sum + f.spectralRolloff, 0) / featureHistory.length;
-            let avgZcr = featureHistory.reduce((sum, f) => sum + f.zcr, 0) / featureHistory.length;
-
-            // Detect changes in energy, spectral centroid, and other features
-            if (segmentBoundaries.length === 0 || 
-                Math.abs(avgEnergy - segmentBoundaries[segmentBoundaries.length - 1].energy) > 0.05 ||
-                Math.abs(avgSpectralCentroid - segmentBoundaries[segmentBoundaries.length - 1].spectralCentroid) > 500 ||
-                Math.abs(avgRms - segmentBoundaries[segmentBoundaries.length - 1].rms) > 0.05 ||
-                Math.abs(avgSpectralRolloff - segmentBoundaries[segmentBoundaries.length - 1].spectralRolloff) > 100 ||
-                Math.abs(avgZcr - segmentBoundaries[segmentBoundaries.length - 1].zcr) > 0.02) {
-
-                // Mark the current boundary if significant changes are detected
-                segmentBoundaries.push({
-                    time: featureHistory[0].time,
-                    energy: avgEnergy,
-                    spectralCentroid: avgSpectralCentroid,
-                    rms: avgRms,
-                    spectralRolloff: avgSpectralRolloff,
-                    zcr: avgZcr
-                });
-            }
-            
-            featureHistory = []; // Reset for next batch
-        }
-    }
-    await new Promise(resolve => setTimeout(resolve, audioBuffer.duration * 1000));
-    analyzer.stop();
-
-
-
-    // Now create the segment data
-    const segments = createSegments(segmentBoundaries);
-    console.log('Final Segments:', segments);
-    return segments;
-}
-
-function createSegments(segmentBoundaries) {
-    let segments = [];
-    const segmentDuration = 10;  // Set segment duration to 10 seconds
-    let currentSegment = {};     // Temporary variable to hold the current segment being formed
-
-    for (let i = 0; i < segmentBoundaries.length - 1; i++) {
-        const segment = {
-            start: segmentBoundaries[i].time,
-            end: segmentBoundaries[i + 1].time,
-            type: 'undetermined'  // Default type
+      } else if(doubleMatches.length == 1){
+        currentElement.type = highestMatchTypes[0]
+        doubleMatches.push('done')
+      } else {
+        if(prev && prev.type && highestMatchTypes.includes(prev.type)){
+          currentElement.type = prev.type
+          doubleMatches.push('done')  
         };
-
-        const prev = segmentBoundaries[i];
-        const curr = segmentBoundaries[i + 1];
-
-        // Assign segment type based on feature comparisons
-        if (curr.energy > prev.energy * 1.2) {
-            // If energy increases significantly, assume it's a Chorus or Transition
-            segment.type = 'chorus';
-        } else if (curr.energy < prev.energy * 0.8) {
-            // If energy drops significantly, assume it might be an Outro or Intro
-            segment.type = 'outro';
-        } else if (curr.spectralCentroid > 5000 && curr.energy > prev.energy * 1.1) {
-            // High spectral centroid and higher energy might indicate a Verse or Chorus
-            segment.type = 'verse';
-        } else {
-            // For all other cases, treat it as a bridge or transitional section
-            segment.type = 'bridge';
+      }
+      if(doubleMatches[doubleMatches.length - 1] != 'done'){
+        const randomIndex = Math.floor(Math.random() * highestMatchTypes.length)
+        currentElement.type = highestMatchTypes[randomIndex]
+        if(doubleMatches.length == 2 && doubleMatches.includes('Bridge') && doubleMatches.includes('BuildUp')){
+          currentElement.type = 'BuildUp'
         }
-
-        // Check if we are still in the same segment type
-        if (segment.type === currentSegment.type) {
-            // If the current segment type matches the last one, extend the current segment
-            currentSegment.end = curr.time;
-        } else {
-            // If it's a new segment type, push the old segment and start a new one
-            if (currentSegment.start !== undefined) {
-                // Ensure that the segment is large enough (>= segmentDuration)
-                if (currentSegment.end - currentSegment.start >= segmentDuration) {
-                    segments.push(currentSegment);
-                }
-            }
-            currentSegment = { start: curr.time, end: curr.time, type: segment.type };
-        }
+      }
     }
+  }
 
-    // Handle the last segment outside the loop
-    if (currentSegment.start !== undefined) {
-        // Ensure the final segment meets the minimum duration
-        if (currentSegment.end - currentSegment.start >= segmentDuration) {
-            segments.push(currentSegment);
-        }
+  // // Create segments with initial categorization
+  for (let i = 0; i < segmentBoundaries.length - 1; i++) {
+    const curr = segmentBoundaries[i];
+    const next = segmentBoundaries[i + 1];
+
+    // Create a segment using the current boundary and the next one.
+    const segment = {
+      start: curr.time,
+      end: next.time, // Now has a real length
+      energy: curr.energy,
+      spectralCentroid: curr.spectralCentroid,
+      spectralRolloff: curr.spectralRolloff,
+      zcr: curr.zcr,
+      rms: curr.rms,
+      type: "Transition" // Default type is now Interlude
+    };
+
+    checkStructure(segment, i, prev, next, segmentBoundaries)
+
+    segments.push(segment);
+    prev = segment;
+  }
+
+  for (let i = segments.length - 2; i > 0; i--) {
+    if ((segments[i - 1].type === segments[i + 1].type && 
+        segments[i].type !== segments[i - 1].type) || 
+        (segments[i - 1].type !== segments[i]. type && 
+          segments[i + 1].type !== segments[i].type)) {
+      segments[i].type = segments[i + 1].type;
     }
+  }
 
-    return segments;
+  const mergedSegments = segments.reduce((acc, seg) => {
+    if (acc.length === 0 || acc[acc.length - 1].type !== seg.type) {
+      acc.push(seg);
+    } else {
+      // Merge the properties of the current segment with the last one
+      acc[acc.length - 1].end = seg.end;
+  
+      // Average the properties of the two segments
+      acc[acc.length - 1].energy = (acc[acc.length - 1].energy + seg.energy) / 2;
+      acc[acc.length - 1].rms = (acc[acc.length - 1].rms + seg.rms) / 2;
+      acc[acc.length - 1].spectralCentroid = (acc[acc.length - 1].spectralCentroid + seg.spectralCentroid) / 2;
+      acc[acc.length - 1].spectralRolloff = (acc[acc.length - 1].spectralRolloff + seg.spectralRolloff) / 2;
+      acc[acc.length - 1].zcr = (acc[acc.length - 1].zcr + seg.zcr) / 2;
+    }
+    return acc;
+  }, []);  
+
+  for (let i = mergedSegments.length - 2; i > 0; i--) {
+    if (mergedSegments[i].end - mergedSegments[i].start < 5) {
+      // Merge the segment by extending the previous segment's end time
+      mergedSegments[i - 1].end = mergedSegments[i].end;
+  
+      // Merge all properties (e.g., energy, rms, spectralCentroid, etc.)
+      mergedSegments[i - 1].energy = (mergedSegments[i - 1].energy + mergedSegments[i].energy) / 2;
+      mergedSegments[i - 1].rms = (mergedSegments[i - 1].rms + mergedSegments[i].rms) / 2;
+      mergedSegments[i - 1].spectralCentroid = (mergedSegments[i - 1].spectralCentroid + mergedSegments[i].spectralCentroid) / 2;
+      mergedSegments[i - 1].spectralRolloff = (mergedSegments[i - 1].spectralRolloff + mergedSegments[i].spectralRolloff) / 2;
+      mergedSegments[i - 1].zcr = (mergedSegments[i - 1].zcr + mergedSegments[i].zcr) / 2;
+  
+      // Optionally, remove the current segment as it has been merged
+      mergedSegments.splice(i, 1);
+    }
+  }
+
+  let merged;
+  do {
+    merged = false;
+    for (let i = mergedSegments.length - 2; i >= 0; i--) {
+      if (mergedSegments[i].type === mergedSegments[i + 1].type) {
+        // Merge adjacent same-type segments
+        mergedSegments[i].end = mergedSegments[i + 1].end;
+        mergedSegments[i].energy = (mergedSegments[i].energy + mergedSegments[i + 1].energy) / 2;
+        mergedSegments[i].rms = (mergedSegments[i].rms + mergedSegments[i + 1].rms) / 2;
+        mergedSegments[i].spectralCentroid = (mergedSegments[i].spectralCentroid + mergedSegments[i + 1].spectralCentroid) / 2;
+        mergedSegments[i].spectralRolloff = (mergedSegments[i].spectralRolloff + mergedSegments[i + 1].spectralRolloff) / 2;
+        mergedSegments[i].zcr = (mergedSegments[i].zcr + mergedSegments[i + 1].zcr) / 2;
+
+        mergedSegments.splice(i + 1, 1);
+        merged = true;
+      }
+    }
+  } while (merged);
+
+
+  return mergedSegments;
+  // return segments
 }
-
-
 
 const TestMixer = () => {
   const [file, setFile] = useState(null);
@@ -486,8 +530,8 @@ const TestMixer = () => {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-    //   await processAudioEssentia(audioBuffer);
-    //   await processAudioMT(audioBuffer);
+      // await processAudioEssentia(audioBuffer);
+      // await processAudioMT(audioBuffer);
       await processAudioMeyda(audioBuffer);
     } catch (error) {
       console.error("Error processing file:", error);
