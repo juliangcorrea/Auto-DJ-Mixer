@@ -1,227 +1,115 @@
-// import Essentia from 'essentia.js/dist/essentia.js-core.es.js'; 
-// import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
-// import { useState } from "react";
-
-// async function processAudio(audioBuffer) {
-//     const essentia = new Essentia(EssentiaWASM);
-//     const sampleRate = audioBuffer.sampleRate;
-//     const channelData = audioBuffer.getChannelData(0);
-//     const totalSamples = channelData.length;
-//     const segmentDuration = 10; // Target segment duration in seconds
-//     const segmentSize = segmentDuration * sampleRate; // Size of each segment in samples
-
-//     // Calculate the number of segments (round up to ensure >= 10 seconds per segment)
-//     const numSegments = Math.ceil(totalSamples / segmentSize);
-//     const segments = [];
-    
-//     // Loop through the audio data and create segments
-//     for (let i = 0; i < numSegments; i++) {
-//         const start = i * segmentSize;
-//         const end = Math.min((i + 1) * segmentSize, totalSamples);
-//         const segmentData = channelData.slice(start, end); // Extract segment data
-        
-//         const segmentVector = essentia.arrayToVector(segmentData);
-
-//         // Extract audio features for each segment
-//         const features = await extractFeatures(essentia, segmentVector);
-//         segments.push({
-//             start,
-//             end,
-//             features
-//         });
-//     }
-
-//     // Group similar adjacent segments based on feature comparison
-//     const groupedSegments = groupSimilarSegments(segments);
-
-//     console.log('Grouped Segments:', groupedSegments);
-//     return groupedSegments;
-// }
-
-// async function extractFeatures(essentia, segmentVector) {
-//     const algorithmsToExtract = [
-//         'BeatTrackerDegara',
-//         'RhythmExtractor2013',
-//         'KeyExtractor',
-//         'Loudness',
-//         'Flux',
-//         'RollOff',
-//         'Energy',
-//         'DynamicComplexity'
-//     ];
-    
-//     const features = {};
-//     const algorithms = essentia.algorithmNames;
-
-//     for (const algo of algorithmsToExtract) {
-//         try {
-//             if (algorithms.includes(algo)) {
-//                 const result = essentia[algo](segmentVector);
-//                 if (result) {
-//                     if (result.ticks) {
-//                         const beatsArray = Array.from(essentia.vectorToArray(result.ticks));
-//                         features[algo] = beatsArray.map(beat => beat.toFixed(2));
-//                     } else {
-//                         features[algo] = result;
-//                     }
-//                 }
-//             } else {
-//                 console.warn(`Algorithm ${algo} not available in Essentia.js`);
-//             }
-//         } catch (error) {
-//             console.error(`Error with ${algo}:`, error);
-//         }
-//     }
-//     return features;
-// }
-
-// function groupSimilarSegments(segments) {
-//     const threshold = 0.1; // Define a threshold for grouping similar segments
-//     let grouped = [];
-//     let currentGroup = [segments[0]];
-
-//     for (let i = 1; i < segments.length; i++) {
-//         const prevSegment = segments[i - 1];
-//         const currSegment = segments[i];
-
-//         // Compare the loudness between adjacent segments (or any other feature you want to compare)
-//         const prevLoudness = prevSegment.features.Loudness || 0;
-//         const currLoudness = currSegment.features.Loudness || 0;
-
-//         // If the difference is smaller than the threshold, group the segments together
-//         if (Math.abs(prevLoudness - currLoudness) < threshold) {
-//             currentGroup.push(currSegment);
-//         } else {
-//             // Otherwise, push the current group and start a new one
-//             grouped.push(currentGroup);
-//             currentGroup = [currSegment];
-//         }
-//     }
-
-//     // Push the last group
-//     if (currentGroup.length > 0) {
-//         grouped.push(currentGroup);
-//     }
-
-//     return grouped;
-// }
-
-// const TestMixer = () => {
-//     const [files, setFiles] = useState([]);
-
-//     const handleFileChange = (event) => {
-//         setFiles([...event.target.files]);
-//     };
-
-//     const processFiles = async () => {
-//         if (files.length === 0) {
-//             console.log("No files uploaded.");
-//             return;
-//         }
-
-//         const allAnalysisResults = [];
-//         for (const file of files) {
-//             try {
-//                 const arrayBuffer = await file.arrayBuffer();
-//                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-//                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                
-//                 const results = await processAudio(audioBuffer);
-//                 allAnalysisResults.push({ name: file.name, results });
-                
-//             } catch (error) {
-//                 console.error(`Error processing file ${file.name}:`, error);
-//             }
-//         }
-//     };
-
-//     return (
-//         <div className="flex flex-col items-center gap-4 p-4">
-//             <input
-//                 type="file"
-//                 accept="audio/*"
-//                 multiple
-//                 onChange={handleFileChange}
-//                 className="border p-2"
-//             />
-//             <button
-//                 onClick={processFiles}
-//                 className="bg-blue-500 text-white p-2 rounded cursor-pointer"
-//             >
-//                 Process Files
-//             </button>
-//         </div>
-//     );
-// };
-
-// export default TestMixer;
-
-
-
-
-
-
-
-
-
-
-
-import { useState } from "react";
+import Essentia from 'essentia.js/dist/essentia.js-core.es.js'; 
+import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
 import Meyda from 'meyda';
+import { useState } from "react";
+
+async function processAudioEssentia(audioBuffer) {
+  const essentia = new Essentia(EssentiaWASM);
+  const sampleRate = audioBuffer.sampleRate;
+  const channelData = audioBuffer.getChannelData(0);
+  const totalSamples = channelData.length;
+  const totalDuration = totalSamples / sampleRate; // Total duration of the audio in seconds
+  const segmentDuration = 1; // Target segment duration in seconds
+
+  // Calculate the number of segments (round up to ensure >= 10 seconds per segment)
+  const numSegments = Math.ceil(totalDuration / segmentDuration);
+  const segments = [];
+
+  console.log('Beginning extraction....');
+  
+  // Loop through the audio data and create segments
+  for (let i = 0; i < numSegments; i++) {
+      const startTime = i * segmentDuration; // Start time of the segment in seconds
+      const endTime = Math.min((i + 1) * segmentDuration, totalDuration); // End time of the segment in seconds
+
+      // Convert the start and end times to sample indices
+      const startSample = Math.floor(startTime * sampleRate); // Convert start time to sample index
+      const endSample = Math.floor(endTime * sampleRate);     // Convert end time to sample index
+
+      const segmentData = channelData.slice(startSample, endSample); // Extract the segment data
+      
+      const segmentVector = essentia.arrayToVector(segmentData);
+
+      // Extract audio features for each segment
+      const features = await extractFeatures(essentia, segmentVector);
+      segments.push({
+          start: startTime, // Start time of the segment in seconds
+          end: endTime,     // End time of the segment in seconds
+          features
+      });
+  }
+
+  return segments;
+}
+
+async function extractFeatures(essentia, segmentVector) {
+    const algorithmsToExtract = [
+        'KeyExtractor',
+        'Loudness',
+        'Flux',
+        'RollOff',
+        'Energy',
+        'DynamicComplexity'
+    ];
+    
+    const features = {};
+    const algorithms = essentia.algorithmNames;
+
+    for (const algo of algorithmsToExtract) {
+        try {
+            if (algorithms.includes(algo)) {
+                const result = essentia[algo](segmentVector);
+                if (result) {
+                    if (result.ticks) {
+                        // Convert beats array properly
+                        features[algo] = Array.from(essentia.vectorToArray(result.ticks)).map(beat => beat.toFixed(2));
+                    } else if (typeof result === 'object' && result !== null) {
+                        // Flatten object properties if it only contains numeric values
+                        for (const key in result) {
+                            if (typeof result[key] === 'number') {
+                                features[key] = result[key]; // Store the numeric value directly
+                            }
+                        }
+                    } else {
+                        features[algo] = result; // Store directly if it's not an object
+                    }
+                }
+            } else {
+                console.warn(`Algorithm ${algo} not available in Essentia.js`);
+            }
+        } catch (error) {
+            console.error(`Error with ${algo}:`, error);
+        }
+    }
+
+    return features;
+}
 
 async function processAudioMeyda(audioBuffer) {
-  console.log('Starting extraction with Meyda....');
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioContext.createBufferSource();
-  source.buffer = audioBuffer;
-
-  // Step 1: Get the sample rate
-  const sampleRate = audioContext.sampleRate;
-
-  // Step 2: Define the buffer size and desired segment duration
+  const sampleRate = audioBuffer.sampleRate;
   const bufferSize = 1024;
   const desiredSegmentDuration = 1; // in seconds
-
-  // Step 3: Calculate the frame duration
   const frameDuration = bufferSize / sampleRate;
-
-  // Step 4: Calculate the frame rate
   const frameRate = 1 / frameDuration;
-
-  // Step 5: Calculate the segment length (number of frames required for 10 seconds)
   const segmentLength = Math.round(frameRate * desiredSegmentDuration);
-
-  // Log the segment length to check the calculation
-  console.log('Calculated segmentLength:', segmentLength);
 
   let songData = {
     featureHistory: [],
     segmentBoundaries: [],  // Store fixed-length segments
   };
 
-  // Create Meyda Analyzer
-  const analyzer = Meyda.createMeydaAnalyzer({
-    audioContext: audioContext,
-    source: source,
-    bufferSize: 1024,
-    featureExtractors: ['rms', 'spectralCentroid', 'spectralRolloff', 'zcr', 'energy'],
-    callback: (features) => {
-      processFeatures(features, songData);
-    },
-  });
-
-  // Start audio playback and feature extraction immediately
-  source.start();
-  analyzer.start();
-
+  // Offline processing: extract features from each frame of the audio buffer
+  const channelData = audioBuffer.getChannelData(0);
+  
+  // Define processFeatures so it has access to segmentLength
   function processFeatures(features, songData) {
     if (!features) return;
     songData.featureHistory.push({
-      time: audioContext.currentTime,
+      time: features.currentTime, // set in the loop below
       energy: features.energy,
       rms: features.rms,
       spectralCentroid: features.spectralCentroid,
-      spectralRolloff: features.spectralRolloff,
+      rollOff: features.spectralRolloff,
       zcr: features.zcr
     });
 
@@ -229,16 +117,21 @@ async function processAudioMeyda(audioBuffer) {
     createSegmentByLength(songData, segmentLength);
   }
 
-  // Wait until the song finishes
-  await new Promise(resolve => setTimeout(resolve, audioBuffer.duration * 1000));
-  analyzer.stop();
+  // Loop over the audio buffer offline, processing in chunks of bufferSize
+  for (let i = 0; i <= channelData.length - bufferSize; i += bufferSize) {
+    const frame = channelData.slice(i, i + bufferSize);
+    const features = Meyda.extract(
+      ['rms', 'spectralCentroid', 'spectralRolloff', 'zcr', 'energy'],
+      frame,
+      { sampleRate: sampleRate }
+    );
+    // Compute the time (in seconds) for this frame based on the sample index
+    features.currentTime = i / sampleRate;
+    processFeatures(features, songData);
+  }
 
-  console.log('Segment Boundaries After Length Check:', songData.segmentBoundaries);
-
-  // After length-based segmentation, classify by type
-  const classifiedSegments = createSegmentByType(songData.segmentBoundaries);
-  console.log('Classified Segments:', classifiedSegments);
-  return classifiedSegments; // Return the classified segments after type categorization
+  // Return the segment boundaries with features, matching the structure of Essentia output
+  return songData.segmentBoundaries;
 }
 
 function createSegmentByLength(songData, segmentLength) {
@@ -247,17 +140,19 @@ function createSegmentByLength(songData, segmentLength) {
     let avgEnergy = songData.featureHistory.reduce((sum, f) => sum + f.energy, 0) / songData.featureHistory.length;
     let avgSpectralCentroid = songData.featureHistory.reduce((sum, f) => sum + (f.spectralCentroid || 0), 0) / songData.featureHistory.length;
     let avgRms = songData.featureHistory.reduce((sum, f) => sum + f.rms, 0) / songData.featureHistory.length;
-    let avgSpectralRolloff = songData.featureHistory.reduce((sum, f) => sum + f.spectralRolloff, 0) / songData.featureHistory.length;
+    let avgRollOff = songData.featureHistory.reduce((sum, f) => sum + f.rollOff, 0) / songData.featureHistory.length;
     let avgZcr = songData.featureHistory.reduce((sum, f) => sum + f.zcr, 0) / songData.featureHistory.length;
 
-    // Directly push the segment boundary without any difference check
+    // Create a segment that matches Essentia's output structure
     songData.segmentBoundaries.push({
-      time: songData.featureHistory[0].time,
-      energy: avgEnergy,
-      spectralCentroid: avgSpectralCentroid,
-      rms: avgRms,
-      spectralRolloff: avgSpectralRolloff,
-      zcr: avgZcr
+      time: songData.featureHistory[0].time, // Use the timestamp of the first feature in the segment
+      features: { // All features are grouped inside the "features" object
+        energy: avgEnergy,
+        spectralCentroid: avgSpectralCentroid,
+        rms: avgRms,
+        rollOff: avgRollOff,
+        zcr: avgZcr
+      }
     });
 
     // Clear the feature history while keeping reference
@@ -265,263 +160,328 @@ function createSegmentByLength(songData, segmentLength) {
   }
 }
 
-function createSegmentByType(segmentBoundaries) {
-  // If there are fewer than two boundaries, we cannot create any segments.
-  if (segmentBoundaries.length < 2) return [];
-  const lastBoundary = segmentBoundaries[segmentBoundaries.length - 1]
-  segmentBoundaries.push(lastBoundary);
+async function getBothSegments(audioBuffer){
 
-  const segments = [];
-  let prev = null; // Will store the previous segment for condition checks
+  const essentiaResults = await processAudioEssentia(audioBuffer)
+  const meydaResults = await processAudioMeyda(audioBuffer)
 
-  function checkConditionals(energyLimitMin, energyLimitMax, rmsLimitMin, rmsLimitMax, 
-    spectralCentroidLimitMin, spectralCentroidLimitMax, spectralRolloffLimitMin,
-    spectralRolloffLimitMax, zcrLimitMin, zcrLimitMax, element, checkType = true){
-    let passes = 0
-    const checks = {
-      energy: [energyLimitMin, energyLimitMax],
-      rms: [rmsLimitMin, rmsLimitMax],
-      spectralCentroid: [spectralCentroidLimitMin, spectralCentroidLimitMax],
-      spectralRolloff: [spectralRolloffLimitMin, spectralRolloffLimitMax],
-      zcr: [zcrLimitMin, zcrLimitMax]
-    }
 
-    Object.entries(checks).forEach(([key, [min, max]]) => {
-      if (element[key] >= min && element[key] <= max) {
-        passes++;
+  function normalize(essentiaSegments, meydaSegments, tolerance = 1) {
+
+    let normalizedSegments = [];
+  
+    for (let i = 0; i < essentiaSegments.length; i++) {
+      let matchedMeydaSegment = null;
+      const essentiaSegment = essentiaSegments[i];
+      const meydaSegment = meydaSegments[i];
+  
+      // Find matching Meyda segment within tolerance
+      if (i <= meydaSegments.length - 1 && meydaSegment && Math.abs(essentiaSegment.start - meydaSegment.time) <= tolerance) {
+        matchedMeydaSegment = meydaSegment;
       }
-    });
-
-    if(checkType){
-      return passes >= 3;
-    } else if (!checkType){
-      return passes;
-    } else {
-      return undefined
+  
+      if (matchedMeydaSegment) {
+        let normalizedSegment = {
+          start: essentiaSegment.start,
+          end: essentiaSegment.end,
+          features: {}
+        };
+  
+        let allFeatures = {};
+  
+        // Add Essentia features
+        for (const key in essentiaSegment.features) {
+          const feature = essentiaSegment.features[key];
+          
+          if (Array.isArray(feature)) {
+            // Ensure array is properly formatted (no unnecessary indices)
+            allFeatures[key] = feature.filter(val => typeof val !== "number");
+          } else if (typeof feature === 'object' && feature !== null) {
+            // If it's an object, leave it as is (don't flatten)
+            allFeatures[key] = feature;
+          } else {
+            // Directly assign non-object values
+            allFeatures[key] = feature;
+          }
+        }
+  
+        // Merge Meyda features
+        if (matchedMeydaSegment.features) {
+          Object.assign(allFeatures, matchedMeydaSegment.features);
+        }
+  
+        // Merge features based on the new logic
+        for (const feature in allFeatures) {
+          const essentiaValue = essentiaSegment.features?.[feature];
+          const meydaValue = matchedMeydaSegment.features?.[feature];
+  
+          if (essentiaValue !== undefined && meydaValue !== undefined) {
+            // If both values exist, use Essentia's value
+            normalizedSegment.features[feature] = essentiaValue;
+          } else if (essentiaValue !== undefined) {
+            // If only Essentia has the value, use Essentia's value
+            normalizedSegment.features[feature] = essentiaValue;
+          } else if (meydaValue !== undefined) {
+            // If only Meyda has the value, use Meyda's value
+            normalizedSegment.features[feature] = meydaValue;
+          }
+        }
+  
+        // Push the normalized segment
+        normalizedSegments.push(normalizedSegment);
+      }
     }
+
+    return normalizedSegments;
   }
 
-  function checkStructure(currentElement, i, prev, next, segmentBoundaries){
-    const matches = []
-    const doubleMatches = []
-    const divisions = 
-      {
-        Intro: [
-          (currentElement, i, prev) => {
-          if (
-            i === 0 || prev && prev.type == "Intro" && checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement)
-          ) {
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement, checkType)
-        ],
-        Drop: [
-          (currentElement) => {
-          if(currentElement.start > 10 && checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement)){
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(0, 1, 0, 0.03, 0, 25, 0, 13000, 0, 25, currentElement, checkType)
-        ],
-        Verse: [
-          (currentElement) => {
-          if (checkConditionals(1, 5, 0.03, 0.07, 30, 70, 13000, 14400, 40, 70, currentElement)) {
-            return true
-          }
-          return false
-        }, (currentElement, checkType) =>checkConditionals(1, 5, 0.03, 0.07, 30, 70, 13000, 14400, 40, 70, currentElement, checkType)
-        ],
-        BuildUp: [
-          (currentElement) => {
-          if(checkConditionals(5, 9, 0.07, 0.1, 50, 70, 13600, 14000, 40, 80, currentElement)){
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(5, 9, 0.07, 0.1, 50, 70, 13600, 14000, 40, 80, currentElement, checkType)
-        ],
-        Chorus: [
-          (currentElement) => {
-          if (checkConditionals(9, 25, 0.09, 0.2, 40, 70, 13200, 15000, 40, 70, currentElement) ) {
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(9, 25, 0.09, 0.2, 40, 70, 13200, 15000, 40, 70, currentElement, checkType)
-        ],
-        Break: [
-          (currentElement) => {
-          if (checkConditionals(14, 18, 0.10, 0.13, 50, 60, 14000, 14800, 30, 50, currentElement)) {
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(14, 18, 0.10, 0.13, 50, 60, 14000, 14800, 30, 50, currentElement, checkType)
-        ],
-        Bridge: [
-          (currentElement) => {
-          if (checkConditionals(3, 7.5, 0.05, 0.09, 60, 75, 13500, 14600, 50, 70, currentElement)) {
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(3, 7.5, 0.05, 0.09, 60, 75, 13500, 14600, 50, 70, currentElement, checkType)
-        ],
-        Outro: [
-          (currentElement, i, prev, next) => {
-          if(currentElement.start > ((segmentBoundaries[segmentBoundaries.length -2].time/100)*80) && 
-          (((prev && currentElement.energy < prev.energy * 0.9) ||
-            (next && currentElement.energy > next.energy * 1.3)) || 
-            currentElement.energy < 1)) {
-            return true
-          }
-          return false
-        }, (currentElement, checkType) => checkConditionals(0, 1, 0, 0.02, 0, 500, 12000, 15000, 0, 500, currentElement, checkType)
-        ]
-      }
+  const songData = normalize(essentiaResults, meydaResults)
+  const featureDatasets = extractFeatureDatasets(songData);
+
+  return [songData, featureDatasets]
+}
+
+function extractFeatureDatasets(data) {
+  const featureNames = Object.keys(data[0].features); // Get all feature names
+  let datasets = {};
+
+  // Initialize empty arrays for each feature
+  featureNames.forEach(feature => {
+      datasets[feature] = [];
+  });
+
+  // Populate datasets with { index, value } pairs
+  data.forEach((entry, index) => {
+      featureNames.forEach(feature => {
+          datasets[feature].push({
+              index: index, // Using array index as the reference
+              value: entry.features[feature] // Extract feature value
+          });
+      });
+  });
+
+  return datasets;
+}
+
+function segmentValues(data, minSegLength = 5) {
     
-    Object.keys(divisions).forEach(type => {
-      if(divisions[type][0](currentElement, i, prev, next) == true){
-        matches.push(type)
-      }
-    })
+  let segments = [];
+  data = data.map(element => ({
+    ...element,
+    value: roundToTwoDecimals(element.value)
+    }))
+  let currentSegment = data.slice(0, minSegLength);
+  let avg = roundToTwoDecimals(currentSegment.slice(2).reduce((sum, d) => sum + d.value, 0) / (currentSegment.length - 2));
+  
+  for (let i = minSegLength; i < data.length - 1; i++) {
 
-    if(matches.length <= 0){
-      currentElement.type = "Transition"
-    } else if(matches.length == 1){
-      currentElement.type = matches[0]
-    } else if (matches.length > 1){
-        matches.forEach(type => {
-            const possibleMatch = [type, divisions[type][1](currentElement, false)]
-            doubleMatches.push(possibleMatch)
-      })
-      const highestMatch = Math.max(...doubleMatches.map((entry) => entry[1])); // Use entry[1] for score
-      const highestMatchTypes = doubleMatches
-        .filter((entry) => entry[1] === highestMatch) // Filter based on the score
-        .map((entry) => entry[0]); // Extract the type (entry[0])
-      if(highestMatchTypes.length == 0){
-        currentElement.type = "Transition"
-        doubleMatches.push('done')
+        if (i + minSegLength < data.length) {
+        
+            //common values
+            let prevValue = data[i - 1].value;
+            let currentValue = data[i].value;
+            let nextTrend = data.slice(i + 1, i + minSegLength + 1).map(d => d.value);
+            let avgTrend = nextTrend.reduce((sum, val) => sum + val, 0) / nextTrend.length
+            
+            
+            //conditionals
+            let baseCondition = roundDownToBase(avg) - roundDownToBase(avgTrend) != 0
+            
+            let conditionIncrease1 = currentValue > avg
+            let conditionIncrease2 = currentValue > prevValue
+            let conditionIncrease3 = nextTrend.every(val => val > avg && val > prevValue)
+          
+            let conditionDecrease1 = currentValue < avg
+            let conditionDecrease2 = currentValue < prevValue
+            let conditionDecrease3 = nextTrend.every(val => val < avg && val < prevValue)
+            
+            
 
-      } else if(doubleMatches.length == 1){
-        currentElement.type = highestMatchTypes[0]
-        doubleMatches.push('done')
+            //segmentation
+            const detectIncrease = conditionIncrease1 && conditionIncrease2 && conditionIncrease3 && baseCondition
+            const detectDecrease = conditionDecrease1 && conditionDecrease2 && conditionDecrease3 &&
+                baseCondition
+          
+            if (detectIncrease || detectDecrease) {
+              currentSegment.push(data[i])
+              segments.push([...currentSegment])
+              currentSegment = data.slice(i + 1, i + minSegLength + 1)
+              avg = roundToTwoDecimals(currentSegment.reduce((sum, d) => sum + d.value, 0) / currentSegment.length);
+              i += minSegLength;
+              continue;
+            }
+        }
+  
+        currentSegment.push(data[i]);
+        
+        if(segments.length == 0){
+        avg = roundToTwoDecimals(currentSegment.slice(2).reduce((sum, d) => sum + d.value, 0) / (currentSegment.length - 2));
+        } else {
+        avg = roundToTwoDecimals(currentSegment.reduce((sum, d) => sum + d.value, 0) / currentSegment.length);  
+        }
+  }
+  
+  segments.push(currentSegment);
+  return segments;
+}
+
+function roundDownToBase(n) {
+    let base = Math.pow(10, Math.floor(Math.log10(Math.abs(n))));
+    let adjustment = base / 2;
+    let candidate = n - (n % base);
+
+    if(n < 10 && n >= 0){
+        return roundToTwoDecimals(n)
+    }
+    else if (n > 10) {
+    return n >= candidate + adjustment ? candidate + adjustment : candidate;
+    } else {
+    return n <= candidate - adjustment ? candidate - adjustment : candidate;
+    }
+}
+
+function roundToTwoDecimals(value) {
+    return Math.round(value * 100) / 100;
+}
+
+function findCommonIndexes(arrays) {
+  const tolerance = 2;
+  const threshold = 0.6
+  let allIndexes = [];
+
+  const extractBoundaryIndexes = (mainArray) => {
+    return mainArray.flatMap(subarray => [subarray[0].index, subarray[subarray.length - 1].index]);
+  }
+  const mainIndexes = arrays.map(extractBoundaryIndexes);
+  const groupIndexes = (indexes) => {
+    let grouped = [];
+    let currentGroup = [indexes[0]];
+
+    for (let i = 1; i < indexes.length; i++) {
+      let isWithinRange = currentGroup.some(value => Math.abs(value - indexes[i]) <= tolerance);
+      if (isWithinRange) {
+        currentGroup.push(indexes[i]);
       } else {
-        if(prev && prev.type && highestMatchTypes.includes(prev.type)){
-          currentElement.type = prev.type
-          doubleMatches.push('done')  
-        };
+        grouped.push(currentGroup);
+        currentGroup = [indexes[i]];
       }
-      if(doubleMatches[doubleMatches.length - 1] != 'done'){
-        const randomIndex = Math.floor(Math.random() * highestMatchTypes.length)
-        currentElement.type = highestMatchTypes[randomIndex]
-        if(doubleMatches.length == 2 && doubleMatches.includes('Bridge') && doubleMatches.includes('BuildUp')){
-          currentElement.type = 'BuildUp'
+    }
+    if (currentGroup.length > 0) {
+      grouped.push(currentGroup);
+    }
+    return grouped;
+  }
+  const groupedIndexes = mainIndexes.map(groupIndexes);
+  const createNewSegments = (grouped) => {
+    let newSegments = []
+    for (let i = 0; i < grouped.length; i++) {
+      let currentGroup = grouped[i];
+      if (newSegments.length === 0) {
+        newSegments = currentGroup.map(subarray => [subarray])
+        continue;
+      }
+      for (let currentSubarray of currentGroup) {
+        let isMerged = false;
+        for (let segment of newSegments) {
+          for (let segmentSubarray of segment) {
+            for (let currentValue of currentSubarray) {
+              for (let segmentValue of segmentSubarray) {
+                if (Math.abs(currentValue - segmentValue) <= tolerance) {
+                  segment.push(currentSubarray);
+                  isMerged = true;
+                  break;
+                }
+              }
+              if (isMerged) break;
+            }
+            if (isMerged) break;
+          }
+          if (isMerged) break;
+        }
+        if (!isMerged) {
+          newSegments.push([currentSubarray]);
         }
       }
     }
+    newSegments = newSegments.filter(segment => {
+      return segment.length >= Math.round(threshold * grouped.length)
+    })
+    return newSegments;
   }
+  const finalSegments = createNewSegments(groupedIndexes);
+  finalSegments.forEach(segment => {
+    segment.forEach(subarray => subarray.sort((a, b) => a - b)); // Sort each subarray within a segment
+  });
+  finalSegments.sort((a, b) => Math.min(...a.flat()) - Math.min(...b.flat()));
+  const processSegments = (segments) => {
+  return segments.map(subarray => {
+    let uniqueValues = [...new Set(subarray.flat())].sort((a, b) => a - b);
 
-  // // Create segments with initial categorization
-  for (let i = 0; i < segmentBoundaries.length - 1; i++) {
-    const curr = segmentBoundaries[i];
-    const next = segmentBoundaries[i + 1];
-
-    // Create a segment using the current boundary and the next one.
-    const segment = {
-      start: curr.time,
-      end: next.time, // Now has a real length
-      energy: curr.energy,
-      spectralCentroid: curr.spectralCentroid,
-      spectralRolloff: curr.spectralRolloff,
-      zcr: curr.zcr,
-      rms: curr.rms,
-      type: "Transition" // Default type is now Interlude
-    };
-
-    checkStructure(segment, i, prev, next, segmentBoundaries)
-
-    segments.push(segment);
-    prev = segment;
-  }
-
-  for (let i = segments.length - 2; i > 0; i--) {
-    if ((segments[i - 1].type === segments[i + 1].type && 
-        segments[i].type !== segments[i - 1].type) || 
-        (segments[i - 1].type !== segments[i]. type && 
-          segments[i + 1].type !== segments[i].type)) {
-      segments[i].type = segments[i + 1].type;
-    }
-  }
-
-  const mergedSegments = segments.reduce((acc, seg) => {
-    if (acc.length === 0 || acc[acc.length - 1].type !== seg.type) {
-      acc.push(seg);
+    if (uniqueValues.length === 1) {
+      return uniqueValues[0];
+    } else if (uniqueValues.length === 2) {
+      let [a, b] = uniqueValues;
+      return (b - a === 1) ? b : (b - a === 2) ? a + 1 : Math.round((a + b) / 2);
     } else {
-      // Merge the properties of the current segment with the last one
-      acc[acc.length - 1].end = seg.end;
-  
-      // Average the properties of the two segments
-      acc[acc.length - 1].energy = (acc[acc.length - 1].energy + seg.energy) / 2;
-      acc[acc.length - 1].rms = (acc[acc.length - 1].rms + seg.rms) / 2;
-      acc[acc.length - 1].spectralCentroid = (acc[acc.length - 1].spectralCentroid + seg.spectralCentroid) / 2;
-      acc[acc.length - 1].spectralRolloff = (acc[acc.length - 1].spectralRolloff + seg.spectralRolloff) / 2;
-      acc[acc.length - 1].zcr = (acc[acc.length - 1].zcr + seg.zcr) / 2;
+      let min = uniqueValues[0];
+      let max = uniqueValues[uniqueValues.length - 1];
+      let middle = (min + max) / 2;
+      return Number.isInteger(middle) ? middle : Math.floor(middle);
     }
-    return acc;
-  }, []);  
+  });
+  };
+  allIndexes = processSegments(finalSegments);
+  const processIndexes = (arr) => {
+  let result = [];
+  for (let i = 0; i < arr.length - 1; i++) {
+    let firstValue = arr[i];
+    let secondValue = arr[i + 1];
 
-  for (let i = mergedSegments.length - 2; i > 0; i--) {
-    if (mergedSegments[i].end - mergedSegments[i].start < 5) {
-      // Merge the segment by extending the previous segment's end time
-      mergedSegments[i - 1].end = mergedSegments[i].end;
-  
-      // Merge all properties (e.g., energy, rms, spectralCentroid, etc.)
-      mergedSegments[i - 1].energy = (mergedSegments[i - 1].energy + mergedSegments[i].energy) / 2;
-      mergedSegments[i - 1].rms = (mergedSegments[i - 1].rms + mergedSegments[i].rms) / 2;
-      mergedSegments[i - 1].spectralCentroid = (mergedSegments[i - 1].spectralCentroid + mergedSegments[i].spectralCentroid) / 2;
-      mergedSegments[i - 1].spectralRolloff = (mergedSegments[i - 1].spectralRolloff + mergedSegments[i].spectralRolloff) / 2;
-      mergedSegments[i - 1].zcr = (mergedSegments[i - 1].zcr + mergedSegments[i].zcr) / 2;
-  
-      // Optionally, remove the current segment as it has been merged
-      mergedSegments.splice(i, 1);
+    if(i == 0){
+        result.push([firstValue, secondValue])
+    } else {
+        if(i + 1 < arr.length){
+            result.push([firstValue + 1, secondValue])
+        }
     }
   }
+  
+  return result;
+  };
+  const finalIndexes = processIndexes(allIndexes)
+  return finalIndexes;
+}
 
-  let merged;
-  do {
-    merged = false;
-    for (let i = mergedSegments.length - 2; i >= 0; i--) {
-      if (mergedSegments[i].type === mergedSegments[i + 1].type) {
-        // Merge adjacent same-type segments
-        mergedSegments[i].end = mergedSegments[i + 1].end;
-        mergedSegments[i].energy = (mergedSegments[i].energy + mergedSegments[i + 1].energy) / 2;
-        mergedSegments[i].rms = (mergedSegments[i].rms + mergedSegments[i + 1].rms) / 2;
-        mergedSegments[i].spectralCentroid = (mergedSegments[i].spectralCentroid + mergedSegments[i + 1].spectralCentroid) / 2;
-        mergedSegments[i].spectralRolloff = (mergedSegments[i].spectralRolloff + mergedSegments[i + 1].spectralRolloff) / 2;
-        mergedSegments[i].zcr = (mergedSegments[i].zcr + mergedSegments[i + 1].zcr) / 2;
+async function mixingSongs(audioBuffer){
+  const testing = await getCommonIndexes(audioBuffer)
+  console.log('full song array:', testing[0])
+  console.log('index song strcuture:', testing[1])
+}
 
-        mergedSegments.splice(i + 1, 1);
-        merged = true;
-      }
-    }
-  } while (merged);
-
-
-  return mergedSegments;
-  // return segments
+async function getCommonIndexes(audioBuffer){
+  const  fullSongData = await getBothSegments(audioBuffer)
+  const featureDatasets = fullSongData[1]
+  const arrays = [];
+  for (const feature in featureDatasets) {
+    arrays.push(segmentValues(featureDatasets[feature]));
+  }
+  const commonIndexes = findCommonIndexes(arrays);
+  return [fullSongData[0], commonIndexes]
 }
 
 const TestMixer = () => {
   const [file, setFile] = useState(null);
 
-  const handleFileChange = (event) => {
+  const handleFileChangeBoth = (event) => {
     const uploadedFile = event.target.files[0];
     if (uploadedFile) {
       setFile(uploadedFile);
     }
   };
 
-  const processFiles = async () => {
+  const processFilesBoth = async () => {
     if (!file) {
-      console.log("No file uploaded.");
+      alert("No file uploaded.");
       return;
     }
 
@@ -530,37 +490,30 @@ const TestMixer = () => {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-      // await processAudioEssentia(audioBuffer);
-      // await processAudioMT(audioBuffer);
-      await processAudioMeyda(audioBuffer);
+      await mixingSongs(audioBuffer)
+      console.log('Finished processing...')
     } catch (error) {
       console.error("Error processing file:", error);
     }
   };
 
   return (
-    <div className="flex flex-col items-center gap-4 p-4">
-      <input
-        type="file"
-        accept="audio/*"
-        onChange={handleFileChange}
-        className="border p-2"
-      />
-      <button
-        onClick={processFiles}
-        className="bg-blue-500 text-white p-2 rounded cursor-pointer"
-      >
-        Process File
-      </button>
-
-      {file && (
-        <div className="mt-4">
-          <h3>Uploaded Song:</h3>
-          <p>{file.name}</p>
-        </div>
-      )}
-    </div>
+      <div className="flex flex-col items-center gap-4 p-4">
+          <input
+              type="file"
+              accept="audio/*"
+              multiple
+              onChange={handleFileChangeBoth}
+              className="border p-2"
+          />
+          <button
+              onClick={processFilesBoth}
+              className="bg-blue-500 text-white p-2 rounded cursor-pointer"
+          >
+              Process Files
+          </button>
+      </div>
   );
 };
 
-export default TestMixer;
+export default TestMixer
