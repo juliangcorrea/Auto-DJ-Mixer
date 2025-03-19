@@ -217,7 +217,7 @@ async function getBothSegments(audioBuffer){
   
           if (essentiaValue !== undefined && meydaValue !== undefined) {
             // If both values exist, use Essentia's value
-            normalizedSegment.features[feature] = essentiaValue;
+            normalizedSegment.features[feature] = meydaValue;
           } else if (essentiaValue !== undefined) {
             // If only Essentia has the value, use Essentia's value
             normalizedSegment.features[feature] = essentiaValue;
@@ -226,7 +226,6 @@ async function getBothSegments(audioBuffer){
             normalizedSegment.features[feature] = meydaValue;
           }
         }
-  
         // Push the normalized segment
         normalizedSegments.push(normalizedSegment);
       }
@@ -452,10 +451,127 @@ function findCommonIndexes(arrays) {
   return finalIndexes;
 }
 
-async function mixingSongs(audioBuffer){
-  const testing = await getCommonIndexes(audioBuffer)
-  console.log('full song array:', testing[0])
-  console.log('index song strcuture:', testing[1])
+async function mixingSongs(firstAudioBuffer, secondAudioBuffer){
+  const testing1 = await getCommonIndexes(firstAudioBuffer)
+  const testing2 = await getCommonIndexes(secondAudioBuffer)
+
+  console.log(testing1, testing2)
+
+
+  function euclideanDistance(features1, features2) {
+    let distance = 0;
+    for (let i = 0; i < features1.length; i++) {
+      distance += Math.pow(features1[i] - features2[i], 2);
+    }
+    return Math.sqrt(distance)
+  }
+
+  function calculateAverageFeatures(featureObjects) {
+    let avgFeatures = {};
+    let count = featureObjects.length;
+  
+    // Early exit if featureObjects is empty or no valid features are present
+    if (count === 0 || !featureObjects[0] || !featureObjects[0].features) {
+      console.error("Invalid featureObjects data:", featureObjects);
+      return avgFeatures;
+    }
+  
+    // Initialize avgFeatures with zero values based on the first feature object's keys
+    for (let key of Object.keys(featureObjects[0].features)) {
+      avgFeatures[key] = 0;
+    }
+  
+    // Loop through each object and accumulate the feature values
+    featureObjects.forEach(obj => {
+      if (obj.features) {
+        for (let key of Object.keys(obj.features)) {
+          avgFeatures[key] += obj.features[key];
+        }
+      } else {
+        console.warn("Missing 'features' in one of the objects:", obj);
+      }
+    });
+  
+    // Calculate the average for each feature
+    for (let key in avgFeatures) {
+      avgFeatures[key] /= count;
+    }
+  
+    return avgFeatures;
+  }  
+
+  function calculateAverageDistance(song1, song2) {
+    let distances = [];
+
+    // Loop through each sub-array in song1 and song2
+    for (let i = 0; i < song1.length; i++) {
+      for (let j = 0; j < song2.length; j++) {
+        // Get the average features for each sub-array
+        let avgFeatures1 = calculateAverageFeatures(song1[i]);
+        let avgFeatures2 = calculateAverageFeatures(song2[j]);
+        
+        // Calculate the Euclidean distance between the two sub-arrays
+        let features1 = Object.values(avgFeatures1);
+        let features2 = Object.values(avgFeatures2);
+        let dist = euclideanDistance(features1, features2);
+        distances.push(dist);
+      }
+    }
+
+    // Calculate the average distance between all pairs
+    let totalDistance = distances.reduce((sum, dist) => sum + dist, 0);
+    return totalDistance / distances.length;
+  }
+
+  function findMixPoints(song1, song2) {
+    let mixPoints = [];
+  
+    // Calculate the average distance between all subarray pairs
+    let avgDistance = calculateAverageDistance(song1, song2);
+  
+    // Loop through all subarray pairs and check for matches
+    for (let i = 0; i < song1.length - 1; i++) { // Ensure there's a next segment
+      for (let j = 0; j < song2.length - 1; j++) { // Ensure there's a next segment
+  
+        // Get the average features for each sub-array
+        let avgFeatures1 = calculateAverageFeatures(song1[i]);
+        let avgFeatures2 = calculateAverageFeatures(song2[j]);
+  
+        // Calculate the Euclidean distance between the two sub-arrays
+        let features1 = Object.values(avgFeatures1);
+        let features2 = Object.values(avgFeatures2);
+        let dist = euclideanDistance(features1, features2);
+  
+        if (dist <= 0.2 * avgDistance) {
+          // Now check the next segments
+          let nextFeatures1 = calculateAverageFeatures(song1[i + 1]);
+          let nextFeatures2 = calculateAverageFeatures(song2[j + 1]);
+  
+          let nextDist = euclideanDistance(
+            Object.values(nextFeatures1),
+            Object.values(nextFeatures2)
+          );
+  
+          let similarity = 1 - nextDist / avgDistance; // Normalize similarity (1 = identical, 0 = max distance)
+          let currentSimilarity = 1 - dist / avgDistance
+          let similarityPercentage = currentSimilarity * 100
+
+          if (similarity >= 0.6) {
+            mixPoints.push([i, j, similarityPercentage.toFixed(2) + "%"]);
+          }
+        }
+      }
+    }
+  
+    return mixPoints;
+  }
+
+
+
+
+
+  let mixPoints = findMixPoints(testing1, testing2)
+  console.log('Mixing points:', mixPoints)
 }
 
 async function getCommonIndexes(audioBuffer){
@@ -465,54 +581,91 @@ async function getCommonIndexes(audioBuffer){
   for (const feature in featureDatasets) {
     arrays.push(segmentValues(featureDatasets[feature]));
   }
-  const commonIndexes = findCommonIndexes(arrays);
-  return [fullSongData[0], commonIndexes]
+  const filteredArrays = arrays.filter(arr => arr.length >= 4);
+  const commonIndexes = findCommonIndexes(filteredArrays);
+  function segmentArray(fullArray, segments) {
+    return segments.map(([start, end]) => {
+        return fullArray.slice(start, end + 1);
+    });
+  }
+  const finalSong = segmentArray(fullSongData[0], commonIndexes)
+  return finalSong
 }
 
 const TestMixer = () => {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([null, null]);
 
   const handleFileChangeBoth = (event) => {
-    const uploadedFile = event.target.files[0];
-    if (uploadedFile) {
-      setFile(uploadedFile);
+    const uploadedFiles = event.target.files;
+    if (uploadedFiles && uploadedFiles.length <= 2) {
+      setFiles([uploadedFiles[0] || null, uploadedFiles[1] || null]);
+    } else {
+      alert("Please upload 1 or 2 files.");
     }
   };
 
+  const swapOrder = () => {
+    setFiles([files[1], files[0]]);
+  };
+
   const processFilesBoth = async () => {
-    if (!file) {
-      alert("No file uploaded.");
+    const [firstFile, secondFile] = files;
+
+    if (!firstFile) {
+      alert("At least one file must be uploaded.");
       return;
     }
 
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const firstArrayBuffer = await firstFile.arrayBuffer();
+      const secondArrayBuffer = secondFile ? await secondFile.arrayBuffer() : null;
 
-      await mixingSongs(audioBuffer)
-      console.log('Finished processing...')
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      const firstAudioBuffer = await audioContext.decodeAudioData(firstArrayBuffer);
+      let secondAudioBuffer = null;
+      if (secondFile) {
+        secondAudioBuffer = await audioContext.decodeAudioData(secondArrayBuffer);
+      }
+
+      await mixingSongs(firstAudioBuffer, secondAudioBuffer);
+      console.log('Finished processing...');
     } catch (error) {
-      console.error("Error processing file:", error);
+      console.error("Error processing files:", error);
     }
   };
 
   return (
-      <div className="flex flex-col items-center gap-4 p-4">
-          <input
-              type="file"
-              accept="audio/*"
-              multiple
-              onChange={handleFileChangeBoth}
-              className="border p-2"
-          />
-          <button
-              onClick={processFilesBoth}
-              className="bg-blue-500 text-white p-2 rounded cursor-pointer"
-          >
-              Process Files
-          </button>
+    <div className="flex flex-col items-center gap-4 p-4">
+      <input
+        type="file"
+        accept="audio/*"
+        multiple
+        onChange={handleFileChangeBoth}
+        className="border p-2"
+      />
+
+      <div className="mt-4">
+        {files[0] && <div>Song 1: {files[0].name}</div>}
+        {files[1] && <div>Song 2: {files[1].name}</div>}
       </div>
+
+      {files[0] && files[1] && (
+        <button
+          onClick={swapOrder}
+          className="bg-yellow-500 text-white p-2 rounded cursor-pointer"
+        >
+          Swap Order
+        </button>
+      )}
+
+      <button
+        onClick={processFilesBoth}
+        className="bg-blue-500 text-white p-2 rounded cursor-pointer"
+      >
+        Process Files
+      </button>
+    </div>
   );
 };
 
