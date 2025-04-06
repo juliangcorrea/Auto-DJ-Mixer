@@ -160,7 +160,7 @@ function createSegmentByLength(songData, segmentLength) {
   }
 }
 
-async function getBothSegments(audioBuffer){
+async function getSongData(audioBuffer){
 
   const essentiaResults = await processAudioEssentia(audioBuffer)
   const meydaResults = await processAudioMeyda(audioBuffer)
@@ -451,12 +451,27 @@ function findCommonIndexes(arrays) {
   return finalIndexes;
 }
 
-async function mixingSongs(firstAudioBuffer, secondAudioBuffer){
-  const testing1 = await getCommonIndexes(firstAudioBuffer)
-  const testing2 = await getCommonIndexes(secondAudioBuffer)
+async function segmentSongByFeatures(audioBuffer){
+  const  fullSongData = await getSongData(audioBuffer)
+  const featureDatasets = fullSongData[1]
+  const arrays = [];
+  for (const feature in featureDatasets) {
+    arrays.push(segmentValues(featureDatasets[feature]));
+  }
+  const filteredArrays = arrays.filter(arr => arr.length >= 4);
+  const commonIndexes = findCommonIndexes(filteredArrays);
+  function segmentArray(fullArray, segments) {
+    return segments.map(([start, end]) => {
+        return fullArray.slice(start, end + 1);
+    });
+  }
+  const finalSong = segmentArray(fullSongData[0], commonIndexes)
+  return finalSong
+}
 
-  console.log(testing1, testing2)
-
+async function findMixPoint(firstAudioBuffer, secondAudioBuffer){
+  const firstSong = await segmentSongByFeatures(firstAudioBuffer)
+  const secondSong = await segmentSongByFeatures(secondAudioBuffer)
 
   function euclideanDistance(features1, features2) {
     let distance = 0;
@@ -557,79 +572,227 @@ async function mixingSongs(firstAudioBuffer, secondAudioBuffer){
           let similarityPercentage = currentSimilarity * 100
 
           if (similarity >= 0.6) {
-            mixPoints.push([i, j, similarityPercentage.toFixed(2) + "%"]);
+            mixPoints.push([i, j, similarityPercentage.toFixed(2)]);
           }
         }
       }
     }
-  
-    return mixPoints;
+    let maxSimilarity = Math.max(...mixPoints.map(mp => parseFloat(mp[2])));
+    return mixPoints.filter(mp => parseFloat(mp[2]) === maxSimilarity);
   }
 
-
-
-
-
-  let mixPoints = findMixPoints(testing1, testing2)
-  console.log('Mixing points:', mixPoints)
+  let mixPoints = findMixPoints(firstSong, secondSong)[0]
+  return mixPoints
 }
 
-async function getCommonIndexes(audioBuffer){
-  const  fullSongData = await getBothSegments(audioBuffer)
-  const featureDatasets = fullSongData[1]
-  const arrays = [];
-  for (const feature in featureDatasets) {
-    arrays.push(segmentValues(featureDatasets[feature]));
+async function findMixTime(firstAudioBuffer, secondAudioBuffer){
+  const mixingPoint = await findMixPoint(firstAudioBuffer, secondAudioBuffer)
+  const songData1 = await segmentSongByFeatures(firstAudioBuffer)
+  const songData2 = await segmentSongByFeatures(secondAudioBuffer)
+  const firstMixPoint = songData1[mixingPoint[0]]
+  const secondMixPoint = songData2[mixingPoint[1]]
+  const lengthSecondSong = songData2[songData2.length - 1][songData2[songData2.length - 1].length - 1].start
+
+  function findMixStart(firstMixPoint, secondMixPoint) {
+    // 1. Get the first 7 seconds of the second track (secondMixPoint)
+    const secondTrack7Sec = secondMixPoint.slice(0, 7);  // Get the first 7 segments
+  
+    // 2. Calculate the average of each feature for the first 7 seconds of secondMixPoint
+    const secondTrackAverages = getFeatureAverages(secondTrack7Sec);
+  
+    let highestSimilarity = 0;
+
+    let bestMatchIndex = null;
+  
+    for (let i = 0; i <= firstMixPoint.length - 8; i++) {
+      const firstTrack7Sec = firstMixPoint.slice(i, i + 7);  // Current 7-second window
+  
+      // 4. Calculate the average of each feature for the current 7 seconds of firstMixPoint
+      const firstTrackAverages = getFeatureAverages(firstTrack7Sec);
+  
+      // 5. Compare the averages between the two 7-second windows
+      const similarity = compareFeatures(secondTrackAverages, firstTrackAverages);
+  
+      // 6. Track the highest similarity and update the best match index
+      if (similarity > highestSimilarity) {
+        highestSimilarity = similarity;
+        bestMatchIndex = i;
+      }
+    }
+
+    return [firstMixPoint[bestMatchIndex].start, secondMixPoint[0].start - 3, lengthSecondSong];
   }
-  const filteredArrays = arrays.filter(arr => arr.length >= 4);
-  const commonIndexes = findCommonIndexes(filteredArrays);
-  function segmentArray(fullArray, segments) {
-    return segments.map(([start, end]) => {
-        return fullArray.slice(start, end + 1);
+
+  function getFeatureAverages(segments) {
+    const featureNames = Object.keys(segments[0].features);  // List of feature names
+    const averages = {};
+  
+    // Calculate average for each feature across all segments in the window
+    featureNames.forEach((featureName) => {
+      averages[featureName] = segments.reduce((sum, segment) => sum + segment.features[featureName], 0) / segments.length;
     });
+  
+    return averages;
   }
-  const finalSong = segmentArray(fullSongData[0], commonIndexes)
-  return finalSong
+  
+  function compareFeatures(features1, features2) {
+    let totalSimilarity = 0;
+    const featureNames = Object.keys(features1);  // Dynamically get all feature names
+  
+    // Compare each feature
+    for (let featureName of featureNames) {
+      const similarity = compareFeature(features1[featureName], features2[featureName]);
+      totalSimilarity += similarity;
+    }
+  
+    // Calculate the average similarity across all features
+    return totalSimilarity / featureNames.length;
+  }
+  
+  function compareFeature(value1, value2) {
+    // Calculate similarity as the percentage of similarity (adjust this as needed)
+    const distance = Math.abs(value1 - value2);  // Euclidean-like distance (absolute difference)
+    const maxPossibleDifference = Math.max(value1, value2);  // To normalize the similarity
+    const similarity = 1 - (distance / maxPossibleDifference);  // Similarity: 1 = identical, 0 = no match
+  
+    return similarity;
+  }
+
+  const mixStart = findMixStart(firstMixPoint, secondMixPoint)
+
+  return mixStart
+}
+
+function applyFadeTransition(audioBuffer1, mixPoint1, audioBuffer2, mixPoint2, fadeDuration = 7) {
+  const sampleRate = audioBuffer1.sampleRate; // Assuming both have the same sample rate
+  const fadeSamples = fadeDuration * sampleRate;
+
+  const channelData1 = audioBuffer1.getChannelData(0); // First song
+  const channelData2 = audioBuffer2.getChannelData(0); // Second song
+
+  const startFadeOut = Math.floor(mixPoint1 * sampleRate);
+  const startFadeIn = Math.floor(mixPoint2 * sampleRate);
+
+  for (let i = 0; i < fadeSamples; i++) {
+    let fadeOutFactor = 1 - i / fadeSamples; // Decrease from 1 to 0
+    let fadeInFactor = i / fadeSamples; // Increase from 0 to 1
+
+    if (startFadeOut + i < channelData1.length) {
+      channelData1[startFadeOut + i] *= fadeOutFactor;
+    }
+    if (startFadeIn + i < channelData2.length) {
+      channelData2[startFadeIn + i] *= fadeInFactor;
+    }
+  }
+
+  return [audioBuffer1, audioBuffer2]; // Return modified buffers
+}
+
+async function mixSongs(audioBuffers) {
+
+  const songMixingPoints = Array(audioBuffers.length).fill(null).map(() => [null, null]);
+
+  for (let i = 0; i < audioBuffers.length - 1; i++) {
+    let bufferA = audioBuffers[i];
+    const bufferB = audioBuffers[i + 1];
+
+    // If this isn't the first song and it has a fade-in, trim bufferA
+    if (i > 0 && songMixingPoints[i][0] !== null) {
+      const fadeInTime = songMixingPoints[i][0];
+      const remainingDuration = bufferA.duration - fadeInTime;
+      const halfUsedStart = fadeInTime + remainingDuration / 2;
+
+      const sampleRate = bufferA.sampleRate;
+      const startSample = Math.floor(halfUsedStart * sampleRate);
+      const length = bufferA.length - startSample;
+
+      const trimmedBuffer = new AudioBuffer({
+        numberOfChannels: bufferA.numberOfChannels,
+        length,
+        sampleRate,
+      });
+
+      for (let ch = 0; ch < bufferA.numberOfChannels; ch++) {
+        const oldData = bufferA.getChannelData(ch);
+        const newData = trimmedBuffer.getChannelData(ch);
+        newData.set(oldData.subarray(startSample));
+      }
+
+      bufferA = trimmedBuffer;
+    }
+
+    // Get mixing points
+    const [fadeOutTime, fadeInTime] = await findMixTime(bufferA, bufferB);
+
+    // First song always starts normally
+    if (i === 0) {
+      songMixingPoints[i][0] = null;
+    }
+
+    if (fadeOutTime !== null && fadeInTime !== null) {
+      songMixingPoints[i][1] = fadeOutTime;         // Fade out for current song
+      songMixingPoints[i + 1][0] = fadeInTime;      // Fade in for next song
+    } else {
+      // No mix found: song ends and next one starts normally (nulls already set)
+    }
+  }
+
+  // Last song ends normally (its fade-out is null already)
+  console.log('Final data:', songMixingPoints)
+  return songMixingPoints;
 }
 
 const TestMixer = () => {
-  const [files, setFiles] = useState([null, null]);
+  const [files, setFiles] = useState([]);
 
-  const handleFileChangeBoth = (event) => {
-    const uploadedFiles = event.target.files;
-    if (uploadedFiles && uploadedFiles.length <= 2) {
-      setFiles([uploadedFiles[0] || null, uploadedFiles[1] || null]);
-    } else {
-      alert("Please upload 1 or 2 files.");
+  const maxFiles = 5;
+  const maxSize = 50 * 1024 * 1024; // 50MB per file
+
+  const handleFileChange = (event) => {
+    const selectedFiles = Array.from(event.target.files);
+
+    if (files.length + selectedFiles.length > maxFiles) {
+      alert(`You can only upload up to ${maxFiles} files.`);
+      return;
     }
+
+    const validFiles = selectedFiles.filter((file) => {
+      if (file.type !== "audio/mpeg") {
+        alert(`${file.name} is not a valid MP3 file.`);
+        return false;
+      }
+      if (file.size > maxSize) {
+        alert(`${file.name} exceeds the 50MB size limit.`);
+        return false;
+      }
+      return true;
+    });
+
+    setFiles((prev) => [...prev, ...validFiles]);
   };
 
-  const swapOrder = () => {
-    setFiles([files[1], files[0]]);
+  const deleteFile = (index) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const processFilesBoth = async () => {
-    const [firstFile, secondFile] = files;
-
-    if (!firstFile) {
-      alert("At least one file must be uploaded.");
+  const processFiles = async () => {
+    if (files.length === 0) {
+      alert("Please upload at least one file.");
       return;
     }
 
     try {
-      const firstArrayBuffer = await firstFile.arrayBuffer();
-      const secondArrayBuffer = secondFile ? await secondFile.arrayBuffer() : null;
-
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-      const firstAudioBuffer = await audioContext.decodeAudioData(firstArrayBuffer);
-      let secondAudioBuffer = null;
-      if (secondFile) {
-        secondAudioBuffer = await audioContext.decodeAudioData(secondArrayBuffer);
-      }
+      const audioBuffers = await Promise.all(
+        files.map(async (file) => {
+          const arrayBuffer = await file.arrayBuffer();
+          return await audioContext.decodeAudioData(arrayBuffer);
+        })
+      );
 
-      await mixingSongs(firstAudioBuffer, secondAudioBuffer);
-      console.log('Finished processing...');
+      await mixSongs(...audioBuffers); // replace with your actual mixing function
+      console.log("Finished processing...");
     } catch (error) {
       console.error("Error processing files:", error);
     }
@@ -639,28 +802,33 @@ const TestMixer = () => {
     <div className="flex flex-col items-center gap-4 p-4">
       <input
         type="file"
-        accept="audio/*"
+        accept="audio/mp3"
         multiple
-        onChange={handleFileChangeBoth}
+        onChange={handleFileChange}
         className="border p-2"
       />
 
-      <div className="mt-4">
-        {files[0] && <div>Song 1: {files[0].name}</div>}
-        {files[1] && <div>Song 2: {files[1].name}</div>}
-      </div>
-
-      {files[0] && files[1] && (
-        <button
-          onClick={swapOrder}
-          className="bg-yellow-500 text-white p-2 rounded cursor-pointer"
-        >
-          Swap Order
-        </button>
-      )}
+      <ul className="text-sm w-full max-w-md">
+        {files.map((file, index) => (
+          <li
+            key={index}
+            className="flex justify-between items-center border-b py-2"
+          >
+            <span>
+              {file.name} ({(file.size / (1024 * 1024)).toFixed(2)}MB)
+            </span>
+            <button
+              onClick={() => deleteFile(index)}
+              className="text-red-500 hover:text-red-700 text-xs"
+            >
+              Delete
+            </button>
+          </li>
+        ))}
+      </ul>
 
       <button
-        onClick={processFilesBoth}
+        onClick={processFiles}
         className="bg-blue-500 text-white p-2 rounded cursor-pointer"
       >
         Process Files
