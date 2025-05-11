@@ -2,6 +2,8 @@ import Essentia from 'essentia.js/dist/essentia.js-core.es.js';
 import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
 import Meyda from 'meyda';
 import { useState } from "react";
+import lamejs from 'lamejs'
+
 
 async function processAudioEssentia(audioBuffer) {
   const essentia = new Essentia(EssentiaWASM);
@@ -15,6 +17,10 @@ async function processAudioEssentia(audioBuffer) {
   const numSegments = Math.ceil(totalDuration / segmentDuration);
   const segments = [];
 
+  if (sampleRate <= 0 || isNaN(sampleRate)) {
+    throw new Error("Invalid sample rate");
+  }
+
   console.log('Beginning extraction....');
   
   // Loop through the audio data and create segments
@@ -26,12 +32,30 @@ async function processAudioEssentia(audioBuffer) {
       const startSample = Math.floor(startTime * sampleRate); // Convert start time to sample index
       const endSample = Math.floor(endTime * sampleRate);     // Convert end time to sample index
 
+      if (startSample >= endSample) {
+        console.warn(`Skipping invalid segment: startSample >= endSample (${startSample} >= ${endSample})`);
+        continue;
+      }
+
       const segmentData = channelData.slice(startSample, endSample); // Extract the segment data
+
+      if (segmentData.length === 0) {
+        console.warn(`Skipping empty segment: ${startTime} - ${endTime}`);
+        continue;
+      }
       
       const segmentVector = essentia.arrayToVector(segmentData);
 
-      // Extract audio features for each segment
-      const features = await extractFeatures(essentia, segmentVector);
+      let features;
+      try {
+        // Extract audio features for each segment
+        features = await extractFeatures(essentia, segmentVector);
+      } catch (error) {
+        console.error(`Error extracting features for segment ${startTime} - ${endTime}:`, error);
+        // Optionally skip this segment or continue with the next one
+        continue;
+      }
+
       segments.push({
           start: startTime, // Start time of the segment in seconds
           end: endTime,     // End time of the segment in seconds
@@ -93,6 +117,10 @@ async function processAudioMeyda(audioBuffer) {
   const frameRate = 1 / frameDuration;
   const segmentLength = Math.round(frameRate * desiredSegmentDuration);
 
+  if (sampleRate <= 0 || isNaN(sampleRate)) {
+    throw new Error("Invalid sample rate.");
+  }
+
   let songData = {
     featureHistory: [],
     segmentBoundaries: [],  // Store fixed-length segments
@@ -120,14 +148,17 @@ async function processAudioMeyda(audioBuffer) {
   // Loop over the audio buffer offline, processing in chunks of bufferSize
   for (let i = 0; i <= channelData.length - bufferSize; i += bufferSize) {
     const frame = channelData.slice(i, i + bufferSize);
+    if (frame.length < bufferSize) continue;
     const features = Meyda.extract(
       ['rms', 'spectralCentroid', 'spectralRolloff', 'zcr', 'energy'],
       frame,
       { sampleRate: sampleRate }
     );
     // Compute the time (in seconds) for this frame based on the sample index
-    features.currentTime = i / sampleRate;
-    processFeatures(features, songData);
+    if (features) {
+      features.currentTime = i / sampleRate;
+      processFeatures(features, songData);
+    }
   }
 
   // Return the segment boundaries with features, matching the structure of Essentia output
@@ -160,11 +191,11 @@ function createSegmentByLength(songData, segmentLength) {
   }
 }
 
-async function getSongData(audioBuffer){
+async function getSongData(audioBuffer, fadein = 0){
 
   const essentiaResults = await processAudioEssentia(audioBuffer)
-  const meydaResults = await processAudioMeyda(audioBuffer)
 
+  const meydaResults = await processAudioMeyda(audioBuffer)
 
   function normalize(essentiaSegments, meydaSegments, tolerance = 1) {
 
@@ -234,7 +265,12 @@ async function getSongData(audioBuffer){
     return normalizedSegments;
   }
 
-  const songData = normalize(essentiaResults, meydaResults)
+  let songData = normalize(essentiaResults, meydaResults)
+
+  if(fadein != 0){
+    songData = songData.splice(fadein)
+  }
+
   const featureDatasets = extractFeatureDatasets(songData);
 
   return [songData, featureDatasets]
@@ -325,22 +361,33 @@ function segmentValues(data, minSegLength = 5) {
 }
 
 function roundDownToBase(n) {
-    let base = Math.pow(10, Math.floor(Math.log10(Math.abs(n))));
-    let adjustment = base / 2;
-    let candidate = n - (n % base);
+  // Check for invalid input (non-numeric or undefined)
+  if (typeof n !== 'number' || isNaN(n)) {
+      throw new Error("Invalid input: n must be a valid number.");
+  }
+  
+  // Handle zero explicitly to avoid Math.log10(0)
+  if (n === 0) return 0;
+  
+  let base = Math.pow(10, Math.floor(Math.log10(Math.abs(n))));
+  let adjustment = base / 2;
+  let candidate = n - (n % base);
 
-    if(n < 10 && n >= 0){
-        return roundToTwoDecimals(n)
-    }
-    else if (n > 10) {
-    return n >= candidate + adjustment ? candidate + adjustment : candidate;
-    } else {
-    return n <= candidate - adjustment ? candidate - adjustment : candidate;
-    }
+  if (n < 10 && n >= 0) {
+      return roundToTwoDecimals(n);  // assuming roundToTwoDecimals is defined elsewhere
+  } else if (n > 10) {
+      return n >= candidate + adjustment ? candidate + adjustment : candidate;
+  } else {
+      return n <= candidate - adjustment ? candidate - adjustment : candidate;
+  }
 }
 
 function roundToTwoDecimals(value) {
-    return Math.round(value * 100) / 100;
+  if (typeof value !== 'number' || isNaN(value)) {
+      console.error('Invalid input for roundToTwoDecimals:', value);
+      return 0; // Return 0 if the value is invalid
+  }
+  return Math.round(value * 100) / 100;
 }
 
 function findCommonIndexes(arrays) {
@@ -351,7 +398,9 @@ function findCommonIndexes(arrays) {
   const extractBoundaryIndexes = (mainArray) => {
     return mainArray.flatMap(subarray => [subarray[0].index, subarray[subarray.length - 1].index]);
   }
+
   const mainIndexes = arrays.map(extractBoundaryIndexes);
+
   const groupIndexes = (indexes) => {
     let grouped = [];
     let currentGroup = [indexes[0]];
@@ -370,7 +419,9 @@ function findCommonIndexes(arrays) {
     }
     return grouped;
   }
+
   const groupedIndexes = mainIndexes.map(groupIndexes);
+
   const createNewSegments = (grouped) => {
     let newSegments = []
     for (let i = 0; i < grouped.length; i++) {
@@ -407,11 +458,15 @@ function findCommonIndexes(arrays) {
     })
     return newSegments;
   }
+
   const finalSegments = createNewSegments(groupedIndexes);
+
   finalSegments.forEach(segment => {
     segment.forEach(subarray => subarray.sort((a, b) => a - b)); // Sort each subarray within a segment
   });
+
   finalSegments.sort((a, b) => Math.min(...a.flat()) - Math.min(...b.flat()));
+
   const processSegments = (segments) => {
   return segments.map(subarray => {
     let uniqueValues = [...new Set(subarray.flat())].sort((a, b) => a - b);
@@ -429,7 +484,9 @@ function findCommonIndexes(arrays) {
     }
   });
   };
+
   allIndexes = processSegments(finalSegments);
+
   const processIndexes = (arr) => {
   let result = [];
   for (let i = 0; i < arr.length - 1; i++) {
@@ -438,7 +495,8 @@ function findCommonIndexes(arrays) {
 
     if(i == 0){
         result.push([firstValue, secondValue])
-    } else {
+    } 
+    else {
         if(i + 1 < arr.length){
             result.push([firstValue + 1, secondValue])
         }
@@ -447,30 +505,44 @@ function findCommonIndexes(arrays) {
   
   return result;
   };
+
   const finalIndexes = processIndexes(allIndexes)
+
+  if (finalIndexes.length === 0) {
+    return null;  // Return null if no matches are found
+  }
+
   return finalIndexes;
 }
 
-async function segmentSongByFeatures(audioBuffer){
-  const  fullSongData = await getSongData(audioBuffer)
+async function segmentSongByFeatures(audioBuffer, fadein = 0){
+  const fullSongData = await getSongData(audioBuffer, fadein)
+
   const featureDatasets = fullSongData[1]
+
   const arrays = [];
+
   for (const feature in featureDatasets) {
     arrays.push(segmentValues(featureDatasets[feature]));
   }
+
   const filteredArrays = arrays.filter(arr => arr.length >= 4);
+
   const commonIndexes = findCommonIndexes(filteredArrays);
+
   function segmentArray(fullArray, segments) {
     return segments.map(([start, end]) => {
         return fullArray.slice(start, end + 1);
     });
   }
+
   const finalSong = segmentArray(fullSongData[0], commonIndexes)
+
   return finalSong
 }
 
-async function findMixPoint(firstAudioBuffer, secondAudioBuffer){
-  const firstSong = await segmentSongByFeatures(firstAudioBuffer)
+async function findMixPoint(firstAudioBuffer, secondAudioBuffer, fadein = 0){
+  const firstSong = await segmentSongByFeatures(firstAudioBuffer, fadein)
   const secondSong = await segmentSongByFeatures(secondAudioBuffer)
 
   function euclideanDistance(features1, features2) {
@@ -545,7 +617,7 @@ async function findMixPoint(firstAudioBuffer, secondAudioBuffer){
     let avgDistance = calculateAverageDistance(song1, song2);
   
     // Loop through all subarray pairs and check for matches
-    for (let i = 0; i < song1.length - 1; i++) { // Ensure there's a next segment
+    for (let i = 1; i < song1.length - 1; i++) { // Ensure there's a next segment
       for (let j = 0; j < song2.length - 1; j++) { // Ensure there's a next segment
   
         // Get the average features for each sub-array
@@ -577,17 +649,27 @@ async function findMixPoint(firstAudioBuffer, secondAudioBuffer){
         }
       }
     }
+
+    if (mixPoints.length === 0) {
+      return [null];
+    }
+
     let maxSimilarity = Math.max(...mixPoints.map(mp => parseFloat(mp[2])));
+
     return mixPoints.filter(mp => parseFloat(mp[2]) === maxSimilarity);
   }
 
   let mixPoints = findMixPoints(firstSong, secondSong)[0]
+
   return mixPoints
 }
 
-async function findMixTime(firstAudioBuffer, secondAudioBuffer){
-  const mixingPoint = await findMixPoint(firstAudioBuffer, secondAudioBuffer)
-  const songData1 = await segmentSongByFeatures(firstAudioBuffer)
+async function findMixTime(firstAudioBuffer, secondAudioBuffer, fadein = 0){
+  const mixingPoint = await findMixPoint(firstAudioBuffer, secondAudioBuffer, fadein)
+  if (mixingPoint === null) {
+    return null;
+  }
+  const songData1 = await segmentSongByFeatures(firstAudioBuffer, fadein)
   const songData2 = await segmentSongByFeatures(secondAudioBuffer)
   const firstMixPoint = songData1[mixingPoint[0]]
   const secondMixPoint = songData2[mixingPoint[1]]
@@ -663,90 +745,165 @@ async function findMixTime(firstAudioBuffer, secondAudioBuffer){
   return mixStart
 }
 
-function applyFadeTransition(audioBuffer1, mixPoint1, audioBuffer2, mixPoint2, fadeDuration = 7) {
-  const sampleRate = audioBuffer1.sampleRate; // Assuming both have the same sample rate
-  const fadeSamples = fadeDuration * sampleRate;
-
-  const channelData1 = audioBuffer1.getChannelData(0); // First song
-  const channelData2 = audioBuffer2.getChannelData(0); // Second song
-
-  const startFadeOut = Math.floor(mixPoint1 * sampleRate);
-  const startFadeIn = Math.floor(mixPoint2 * sampleRate);
-
-  for (let i = 0; i < fadeSamples; i++) {
-    let fadeOutFactor = 1 - i / fadeSamples; // Decrease from 1 to 0
-    let fadeInFactor = i / fadeSamples; // Increase from 0 to 1
-
-    if (startFadeOut + i < channelData1.length) {
-      channelData1[startFadeOut + i] *= fadeOutFactor;
-    }
-    if (startFadeIn + i < channelData2.length) {
-      channelData2[startFadeIn + i] *= fadeInFactor;
-    }
-  }
-
-  return [audioBuffer1, audioBuffer2]; // Return modified buffers
-}
-
 async function mixSongs(audioBuffers) {
-
   const songMixingPoints = Array(audioBuffers.length).fill(null).map(() => [null, null]);
 
+  // STEP 1: Calculate mix points
   for (let i = 0; i < audioBuffers.length - 1; i++) {
-    let bufferA = audioBuffers[i];
+    const bufferA = audioBuffers[i];
     const bufferB = audioBuffers[i + 1];
+    let fadein = 0;
 
-    // If this isn't the first song and it has a fade-in, trim bufferA
     if (i > 0 && songMixingPoints[i][0] !== null) {
       const fadeInTime = songMixingPoints[i][0];
       const remainingDuration = bufferA.duration - fadeInTime;
-      const halfUsedStart = fadeInTime + remainingDuration / 2;
+      const halfUsedStart = Math.floor(fadeInTime + remainingDuration / 2);
+      fadein = halfUsedStart;
+    }
 
-      const sampleRate = bufferA.sampleRate;
-      const startSample = Math.floor(halfUsedStart * sampleRate);
-      const length = bufferA.length - startSample;
+    const mixTimes = await findMixTime(bufferA, bufferB, fadein);
 
-      const trimmedBuffer = new AudioBuffer({
-        numberOfChannels: bufferA.numberOfChannels,
-        length,
-        sampleRate,
-      });
+    if (mixTimes !== null) {
+      const [fadeOutTime, fadeInTime] = mixTimes;
 
-      for (let ch = 0; ch < bufferA.numberOfChannels; ch++) {
-        const oldData = bufferA.getChannelData(ch);
-        const newData = trimmedBuffer.getChannelData(ch);
-        newData.set(oldData.subarray(startSample));
+      if (i === 0) songMixingPoints[i][0] = null;
+
+      if (fadeOutTime !== null && fadeInTime !== null) {
+        songMixingPoints[i][1] = fadeOutTime;
+        songMixingPoints[i + 1][0] = fadeInTime;
       }
-
-      bufferA = trimmedBuffer;
-    }
-
-    // Get mixing points
-    const [fadeOutTime, fadeInTime] = await findMixTime(bufferA, bufferB);
-
-    // First song always starts normally
-    if (i === 0) {
-      songMixingPoints[i][0] = null;
-    }
-
-    if (fadeOutTime !== null && fadeInTime !== null) {
-      songMixingPoints[i][1] = fadeOutTime;         // Fade out for current song
-      songMixingPoints[i + 1][0] = fadeInTime;      // Fade in for next song
-    } else {
-      // No mix found: song ends and next one starts normally (nulls already set)
     }
   }
 
-  // Last song ends normally (its fade-out is null already)
-  console.log('Final data:', songMixingPoints)
-  return songMixingPoints;
+  // STEP 2: Apply fades and combine
+  const sampleRate = audioBuffers[0].sampleRate;
+  const fadeInDuration = 5;
+  const fadeOutDuration = 7;
+  const fadeInSamples = fadeInDuration * sampleRate;
+  const fadeOutSamples = fadeOutDuration * sampleRate;
+  let finalLength = 0;
+
+  const processedChannels = [];
+
+  for (let i = 0; i < audioBuffers.length; i++) {
+    const buffer = audioBuffers[i];
+    const channel = buffer.getChannelData(0);
+    const newChannel = new Float32Array(channel.length);
+    newChannel.set(channel);
+
+    const [fadeInTime, fadeOutTime] = songMixingPoints[i];
+
+    if (fadeInTime !== null) {
+      const startFadeIn = Math.floor(fadeInTime * sampleRate);
+      for (let j = 0; j < fadeInSamples && (startFadeIn + j) < newChannel.length; j++) {
+        const fadeFactor = j / fadeInSamples;
+        newChannel[startFadeIn + j] *= fadeFactor;
+      }
+    }
+
+    if (fadeOutTime !== null) {
+      const startFadeOut = Math.floor(fadeOutTime * sampleRate);
+      for (let j = 0; j < fadeOutSamples && (startFadeOut + j) < newChannel.length; j++) {
+        const fadeFactor = 1 - (j / fadeOutSamples);
+        newChannel[startFadeOut + j] *= fadeFactor;
+      }
+    }
+
+    processedChannels.push(newChannel);
+
+    // Update final length (with overlap accounted)
+    let start = 0;
+    let end = buffer.length;
+    if (songMixingPoints[i][0] !== null) {
+      start = Math.floor(songMixingPoints[i][0] * sampleRate);
+    }
+    if (songMixingPoints[i][1] !== null && i < audioBuffers.length - 1) {
+      end = Math.floor(songMixingPoints[i][1] * sampleRate) + fadeOutSamples;
+    }
+    finalLength += (end - start);
+    if (i < audioBuffers.length - 1 && songMixingPoints[i][1] !== null) {
+      finalLength -= fadeOutSamples; // overlap correction
+    }
+  }
+
+  const mixedChannel = new Float32Array(finalLength);
+  let offset = 0;
+
+  for (let i = 0; i < processedChannels.length; i++) {
+    const current = processedChannels[i];
+    let start = 0;
+    let end = current.length;
+
+    if (i > 0 && songMixingPoints[i][0] !== null) {
+      start = Math.floor(songMixingPoints[i][0] * sampleRate);
+    }
+
+    if (i < processedChannels.length - 1 && songMixingPoints[i][1] !== null) {
+      end = Math.floor(songMixingPoints[i][1] * sampleRate) + fadeOutSamples;
+    }
+
+    const lengthToCopy = end - start;
+
+    for (let j = 0; j < lengthToCopy; j++) {
+      const sample = current[start + j] || 0;
+      if (offset + j < mixedChannel.length) {
+        mixedChannel[offset + j] += sample; // handles overlap
+      }
+    }
+
+    offset += lengthToCopy;
+    if (i < processedChannels.length - 1 && songMixingPoints[i][1] !== null) {
+      offset -= fadeOutSamples;
+    }
+  }
+
+  // STEP 3: Encode to MP3 using lamejs
+  const mp3encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+  const samples = mixedChannel;
+  const mp3Data = [];
+
+  const samplesInt16 = samples.map(s => Math.max(-1, Math.min(1, s)) * 32767).map(s => s | 0);
+  const chunkSize = 1152;
+  for (let i = 0; i < samplesInt16.length; i += chunkSize) {
+    const chunk = samplesInt16.slice(i, i + chunkSize);
+    const mp3buf = mp3encoder.encodeBuffer(chunk);
+    if (mp3buf.length > 0) mp3Data.push(new Uint8Array(mp3buf));
+  }
+
+  const endBuf = mp3encoder.flush();
+  if (endBuf.length > 0) mp3Data.push(new Uint8Array(endBuf));
+
+  // STEP 4: Trigger browser download
+  const blob = new Blob(mp3Data, { type: 'audio/mp3' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.style.display = 'none';
+  a.href = url;
+  a.download = 'mixed_songs.mp3';
+  document.body.appendChild(a);
+  a.click();
+
+  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+
+  return blob;
 }
 
 const TestMixer = () => {
   const [files, setFiles] = useState([]);
 
+  const [selectedForSwap, setSelectedForSwap] = useState([]);
+
   const maxFiles = 5;
-  const maxSize = 50 * 1024 * 1024; // 50MB per file
+
+  const maxSize = 50 * 1024 * 1024; // 50MB
+
+  const isValidMP3 = (file) => {
+    const validTypes = ["audio/mpeg", "audio/mp3"];
+    const validExtension = file.name.toLowerCase().endsWith(".mp3");
+    return validTypes.includes(file.type) || validExtension;
+  };
 
   const handleFileChange = (event) => {
     const selectedFiles = Array.from(event.target.files);
@@ -757,7 +914,7 @@ const TestMixer = () => {
     }
 
     const validFiles = selectedFiles.filter((file) => {
-      if (file.type !== "audio/mpeg") {
+      if (!isValidMP3(file)) {
         alert(`${file.name} is not a valid MP3 file.`);
         return false;
       }
@@ -768,11 +925,39 @@ const TestMixer = () => {
       return true;
     });
 
-    setFiles((prev) => [...prev, ...validFiles]);
+    const newUniqueFiles = validFiles.filter(
+      (file) => !files.some((existing) => existing.name === file.name)
+    );
+
+    setFiles((prev) => [...prev, ...newUniqueFiles]);
   };
 
   const deleteFile = (index) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+    setSelectedForSwap((prev) => prev.filter((i) => i !== index).map(i => (i > index ? i - 1 : i)));
+  };
+
+  const toggleSelect = (index) => {
+    setSelectedForSwap((prev) =>
+      prev.includes(index)
+        ? prev.filter((i) => i !== index)
+        : prev.length < 2
+        ? [...prev, index]
+        : prev
+    );
+  };
+
+  const swapSelectedFiles = () => {
+    if (selectedForSwap.length !== 2) {
+      alert("Please select exactly 2 songs to swap.");
+      return;
+    }
+
+    const [i, j] = selectedForSwap;
+    const updatedFiles = [...files];
+    [updatedFiles[i], updatedFiles[j]] = [updatedFiles[j], updatedFiles[i]];
+    setFiles(updatedFiles);
+    setSelectedForSwap([]);
   };
 
   const processFiles = async () => {
@@ -784,17 +969,34 @@ const TestMixer = () => {
     try {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-      const audioBuffers = await Promise.all(
+      const audioBuffersResults = await Promise.allSettled(
         files.map(async (file) => {
           const arrayBuffer = await file.arrayBuffer();
           return await audioContext.decodeAudioData(arrayBuffer);
         })
       );
 
-      await mixSongs(...audioBuffers); // replace with your actual mixing function
+      const successfulBuffers = audioBuffersResults
+        .filter((res) => res.status === "fulfilled")
+        .map((res) => res.value)
+        .filter((buffer) => {
+          const channelData = buffer.getChannelData(0);
+          return channelData.some((sample) => sample !== 0);
+        });
+
+      if (successfulBuffers.length === 0) {
+        alert("None of the files could be processed.");
+        await audioContext.close();
+        return;
+      }
+
+      await mixSongs(successfulBuffers); // Replace with your mixing function
       console.log("Finished processing...");
+
+      await audioContext.close();
     } catch (error) {
       console.error("Error processing files:", error);
+      alert("Something went wrong while processing your files.");
     }
   };
 
@@ -814,9 +1016,16 @@ const TestMixer = () => {
             key={index}
             className="flex justify-between items-center border-b py-2"
           >
-            <span>
-              {file.name} ({(file.size / (1024 * 1024)).toFixed(2)}MB)
-            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selectedForSwap.includes(index)}
+                onChange={() => toggleSelect(index)}
+              />
+              <span>
+                {file.name} ({(file.size / (1024 * 1024)).toFixed(2)}MB)
+              </span>
+            </div>
             <button
               onClick={() => deleteFile(index)}
               className="text-red-500 hover:text-red-700 text-xs"
@@ -827,12 +1036,21 @@ const TestMixer = () => {
         ))}
       </ul>
 
-      <button
-        onClick={processFiles}
-        className="bg-blue-500 text-white p-2 rounded cursor-pointer"
-      >
-        Process Files
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={swapSelectedFiles}
+          className="bg-yellow-500 text-white px-4 py-2 rounded"
+        >
+          Swap Selected
+        </button>
+
+        <button
+          onClick={processFiles}
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+        >
+          Process Files
+        </button>
+      </div>
     </div>
   );
 };
