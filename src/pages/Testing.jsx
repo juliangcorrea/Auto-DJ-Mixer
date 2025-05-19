@@ -5,6 +5,8 @@ import { useState } from "react";
 import lamejs from 'lamejs'
 
 
+
+// audio feature extraction
 async function processAudioEssentia(audioBuffer) {
   const essentia = new Essentia(EssentiaWASM);
   const sampleRate = audioBuffer.sampleRate;
@@ -21,8 +23,6 @@ async function processAudioEssentia(audioBuffer) {
     throw new Error("Invalid sample rate");
   }
 
-  console.log('Beginning extraction....');
-  
   // Loop through the audio data and create segments
   for (let i = 0; i < numSegments; i++) {
       const startTime = i * segmentDuration; // Start time of the segment in seconds
@@ -191,13 +191,7 @@ function createSegmentByLength(songData, segmentLength) {
   }
 }
 
-async function getSongData(audioBuffer, fadein = 0){
-
-  const essentiaResults = await processAudioEssentia(audioBuffer)
-
-  const meydaResults = await processAudioMeyda(audioBuffer)
-
-  function normalize(essentiaSegments, meydaSegments, tolerance = 1) {
+function normalizeData(essentiaSegments, meydaSegments, tolerance = 1) {
 
     let normalizedSegments = [];
   
@@ -265,7 +259,13 @@ async function getSongData(audioBuffer, fadein = 0){
     return normalizedSegments;
   }
 
-  let songData = normalize(essentiaResults, meydaResults)
+async function getSongData(audioBuffer, fadein = 0){
+
+  const essentiaResults = await processAudioEssentia(audioBuffer)
+
+  const meydaResults = await processAudioMeyda(audioBuffer)
+
+  let songData = normalizeData(essentiaResults, meydaResults)
 
   if(fadein != 0){
     songData = songData.splice(fadein)
@@ -389,6 +389,8 @@ function roundToTwoDecimals(value) {
   }
   return Math.round(value * 100) / 100;
 }
+
+//analyze song 
 
 function findCommonIndexes(arrays) {
   const tolerance = 2;
@@ -991,7 +993,6 @@ const TestMixer = () => {
       }
 
       await mixSongs(successfulBuffers); // Replace with your mixing function
-      console.log("Finished processing...");
 
       await audioContext.close();
     } catch (error) {
