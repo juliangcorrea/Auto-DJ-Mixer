@@ -1,52 +1,44 @@
-import { useState } from "react";
+import { useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 import StyledButton from "../components/common/StyledButton";
 
 export default function Download() {
-  const [isMixing, setIsMixing] = useState(false);
+  const location = useLocation();
+  const passedUrl = location.state?.mixUrl || null;
+
   const [mixUrl, setMixUrl] = useState(null);
 
-  // Mock function to simulate the mix generation and provide a download URL
-  const generateMix = () => {
-    setIsMixing(true);
-
-    // Simulate a mix generation process
-    setTimeout(() => {
-      setMixUrl("https://www.example.com/path-to-mix.mp3")
-      setIsMixing(false);
-    }, 3000)
-  };
+  useEffect(() => {
+    if (passedUrl) {
+      setMixUrl(passedUrl);
+    }
+  }, [passedUrl]);
 
   return (
-    <div className="flex flex-col min-h-screen items-center justify-center bg-gray-100 p-6">
-      {/* Centered Box for the Download Section */}
-      <div className="w-full lg:w-3/5 max-w-lg bg-white p-6 rounded-lg shadow-md text-center">
-        <h2 className="text-2xl font-semibold mb-4">Your Mix is Ready!</h2>
+    <div className="flex flex-col min-h-screen items-center justify-center bg-gray-100 px-4 py-12 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md sm:max-w-lg lg:max-w-xl bg-white p-8 rounded-xl shadow-lg text-center">
+        <h2 className="text-3xl font-semibold mb-6 text-gray-900">
+          Your Mix is Ready!
+        </h2>
 
-        {/* If the mix is being generated */}
-        {isMixing ? (
-          <div>
-            <p className="text-gray-600">Your mix is being generated...</p>
-            <div className="w-full bg-gray-200 h-2 rounded-full mt-4">
-              <div className="h-2 bg-blue-500 rounded-full w-1/2"></div> {/* Simulate progress */}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <p className="text-gray-600 mb-4">
+        {mixUrl ? (
+          <>
+            <p className="text-gray-700 mb-8 text-base sm:text-lg">
               Your mix is ready! Click the button below to download it.
             </p>
-
-            {/* Download Button, only visible once the mix is ready */}
-            {mixUrl ? (
-              <a
-                href={mixUrl}
-                download
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Download Mix
-              </a>
-            ) : ( <StyledButton text="Generate Mix" onClick={generateMix} />)}
-          </div>
+            <a
+              href={mixUrl}
+              download="mixed_songs.mp3"
+              className="inline-block w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-400 focus:ring-opacity-50 transition"
+              aria-label="Download your mixed audio file"
+            >
+              Download Mix
+            </a>
+          </>
+        ) : (
+          <p className="text-gray-600 text-base sm:text-lg">
+            No mix found. Please return to the mixer and try again.
+          </p>
         )}
       </div>
     </div>

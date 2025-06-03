@@ -1,143 +1,165 @@
-import { useState } from "react";
-import StyledButton from "../components/common/StyledButton";
-import LoadingOverlay from "../components/common/LoadingOverlay";
-import ErrorDialog from "../components/common/ErrorDialog";
-import {mixSongs} from '../audioAnalysis/audioAnalysisFunctions'
+import { useState } from "react"
+import StyledButton from "../components/common/StyledButton"
+import LoadingOverlay from "../components/common/LoadingOverlay"
+import ErrorDialog from "../components/common/ErrorDialog"
+import { mixSongs } from "../audioAnalysis/audioAnalysisFunctions"
 
 export default function Mixer() {
-  const [files, setFiles] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showError, setShowError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [selectedForSwap, setSelectedForSwap] = useState([]);
+  const [files, setFiles] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState({ visible: false, message: "" })
+  const [selectedIndices, setSelectedIndices] = useState([])
 
-  const maxFiles = 5;
-  const maxSize = 50 * 1024 * 1024; // 50MB
+  const MAX_FILES = 5
+  const MAX_SIZE_BYTES = 50 * 1024 * 1024 // 50MB
 
   const isValidMP3 = (file) => {
-    const validTypes = ["audio/mpeg", "audio/mp3"];
-    const validExtension = file.name.toLowerCase().endsWith(".mp3");
-    return validTypes.includes(file.type) || validExtension;
-  };
+    const validTypes = ["audio/mpeg", "audio/mp3"]
+    const hasValidExtension = file.name.toLowerCase().endsWith(".mp3")
+    return validTypes.includes(file.type) || hasValidExtension
+  }
+
+  const showError = (message) => {
+    setError({ visible: true, message })
+  }
+
+  const clearError = () => {
+    setError({ visible: false, message: "" })
+  }
 
   const handleFileChange = (event) => {
-    const selectedFiles = Array.from(event.target.files);
+    clearError()
+    const selectedFiles = Array.from(event.target.files)
 
-    if (files.length + selectedFiles.length > maxFiles) {
-      alert(`You can only upload up to ${maxFiles} files.`);
-      return;
+    if (files.length + selectedFiles.length > MAX_FILES) {
+      showError(`You can upload up to ${MAX_FILES} files only.`)
+      return
     }
 
-    const validFiles = selectedFiles.filter((file) => {
-      if (!isValidMP3(file)) {
-        alert(`${file.name} is not a valid MP3 file.`);
-        return false;
-      }
-      if (file.size > maxSize) {
-        alert(`${file.name} exceeds the 50MB size limit.`);
-        return false;
-      }
-      return true;
-    });
+    const invalidFiles = selectedFiles.filter(
+      (file) => !isValidMP3(file) || file.size > MAX_SIZE_BYTES
+    )
 
-    const newUniqueFiles = validFiles.filter(
+    if (invalidFiles.length > 0) {
+      invalidFiles.forEach((file) => {
+        if (!isValidMP3(file)) {
+          showError(`"${file.name}" is not a valid MP3 file.`)
+        } else if (file.size > MAX_SIZE_BYTES) {
+          showError(`"${file.name}" exceeds the 50MB size limit.`)
+        }
+      })
+      return
+    }
+
+    const newUniqueFiles = selectedFiles.filter(
       (file) => !files.some((existing) => existing.name === file.name)
-    );
+    )
 
-    if (newUniqueFiles.length !== validFiles.length) {
-      alert("Duplicate files are not allowed.");
+    if (newUniqueFiles.length !== selectedFiles.length) {
+      showError("Duplicate files are not allowed.")
     }
 
-    setFiles((prev) => [...prev, ...newUniqueFiles]);
-  };
+    setFiles((prev) => [...prev, ...newUniqueFiles])
+    event.target.value = null
+  }
 
   const deleteFile = (index) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    setSelectedForSwap((prev) =>
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+    setSelectedIndices((prev) =>
       prev
         .filter((i) => i !== index)
         .map((i) => (i > index ? i - 1 : i))
-    );
-  };
+    )
+  }
 
   const toggleSelect = (index) => {
-    setSelectedForSwap((prev) =>
-      prev.includes(index)
-        ? prev.filter((i) => i !== index)
-        : prev.length < 2
-        ? [...prev, index]
-        : prev
-    );
-  };
+    setSelectedIndices((prev) => {
+      if (prev.includes(index)) {
+        return prev.filter((i) => i !== index)
+      } else if (prev.length < 2) {
+        return [...prev, index]
+      }
+      return prev
+    })
+  }
 
   const swapSelectedFiles = () => {
-    if (selectedForSwap.length !== 2) {
-      alert("Please select exactly 2 songs to swap.");
-      return;
+    clearError()
+    if (selectedIndices.length !== 2) {
+      showError("Please select exactly 2 songs to swap.")
+      return
     }
 
-    const [i, j] = selectedForSwap;
-    const updatedFiles = [...files];
-    [updatedFiles[i], updatedFiles[j]] = [updatedFiles[j], updatedFiles[i]];
-    setFiles(updatedFiles);
-    setSelectedForSwap([]);
-  };
+    const [i, j] = selectedIndices
+    setFiles((prev) => {
+      const updated = [...prev]
+      ;[updated[i], updated[j]] = [updated[j], updated[i]]
+      return updated
+    })
+
+    setSelectedIndices([])
+  }
 
   const handleGenerateMix = async () => {
+    clearError()
+
     if (files.length < 2) {
-      alert("Please upload at least two files to generate a mix.");
-      return;
+      showError("Please upload at least two files to generate a mix.")
+      return
     }
 
-    setIsLoading(true);
+    if (!window.AudioContext && !window.webkitAudioContext) {
+      showError("Web Audio API is not supported in this browser.")
+      return
+    }
+
+    setIsLoading(true)
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
 
     try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-      const audioBuffersResults = await Promise.allSettled(
+      const decodeResults = await Promise.allSettled(
         files.map(async (file) => {
-          const arrayBuffer = await file.arrayBuffer();
-          return await audioContext.decodeAudioData(arrayBuffer);
+          const arrayBuffer = await file.arrayBuffer()
+          return await audioContext.decodeAudioData(arrayBuffer)
         })
-      );
+      )
 
-      const successfulBuffers = audioBuffersResults
+      const validBuffers = decodeResults
         .filter((res) => res.status === "fulfilled")
         .map((res) => res.value)
         .filter((buffer) => {
-          const channelData = buffer.getChannelData(0);
-          return channelData.some((sample) => sample !== 0); // Ignore silent files
-        });
+          const data = buffer.getChannelData(0)
+          return data.some((sample) => sample !== 0)
+        })
 
-      if (successfulBuffers.length === 0) {
-        setErrorMessage("None of the files could be processed. Please upload valid MP3 files.");
-        setShowError(true);
-        await audioContext.close();
-        setIsLoading(false);
-        return;
+      if (validBuffers.length === 0) {
+        showError("None of the files could be processed. Please upload valid MP3 files.")
+        return
       }
-      
-      await mixSongs(successfulBuffers);
-      await audioContext.close();
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Error processing files:", error);
-      setErrorMessage("There was an issue processing the files. Please try again.");
-      setShowError(true);
-      setIsLoading(false);
-    }
-  };
 
-  const handleCloseErrorDialog = () => {
-    setShowError(false);
-  };
+      await mixSongs(validBuffers)
+    } catch (error) {
+      console.error("Error during mixing:", error)
+      showError("There was an issue processing the files. Please try again.")
+    } finally {
+      await audioContext.close()
+      setIsLoading(false)
+    }
+  }
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen items-center justify-center bg-gray-100 p-6">
-      {/* Left Section: File Upload */}
-      <div className="w-full min-h-[40vh] lg:w-3/5 max-w-lg bg-white p-6 rounded-lg shadow-md mb-6 lg:mb-0">
-        <h2 className="text-2xl font-semibold mb-4">Upload Your Songs</h2>
-        <div className="border-2 border-dashed border-gray-300 p-6 rounded-lg bg-gray-50 cursor-pointer">
+    <div className="flex flex-col lg:flex-row min-h-screen items-start lg:items-center justify-center bg-gray-100 p-4 sm:p-6 gap-6">
+      {/* File Upload Section */}
+      <section className="w-full lg:w-1/2 bg-white p-5 sm:p-6 rounded-xl shadow-md" aria-label="File upload section">
+        <h2 className="text-xl sm:text-2xl font-semibold mb-4">Upload Your Songs</h2>
+
+        <div
+          className="border-2 border-dashed border-gray-300 p-5 sm:p-6 rounded-lg bg-gray-50 text-center cursor-pointer"
+          onClick={() => document.getElementById("fileInput").click()}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && document.getElementById("fileInput").click()}
+          role="button"
+          tabIndex={0}
+        >
           <input
             type="file"
             multiple
@@ -146,25 +168,30 @@ export default function Mixer() {
             className="hidden"
             id="fileInput"
           />
-          <label htmlFor="fileInput" className="block text-gray-600 cursor-pointer">
-            Drag & Drop files here or <span className="text-blue-500 underline">browse</span>
-          </label>
+          <p className="text-gray-600">
+            Tap to <span className="text-blue-500 underline">browse</span> or drag & drop your MP3s
+          </p>
         </div>
 
-        {/* Display uploaded files with delete option */}
-        <ul className="mt-4 text-left text-sm text-gray-700">
+        {error.visible && (
+          <p className="mt-3 text-red-600 font-semibold text-sm sm:text-base" role="alert">
+            {error.message}
+          </p>
+        )}
+
+        <ul className="mt-4 divide-y text-sm text-gray-700">
           {files.map((file, index) => (
-            <li key={index} className="flex justify-between items-center border-b py-2">
-              <div className="flex items-center gap-2">
+            <li key={file.name + index} className="py-2 flex justify-between items-center">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={selectedForSwap.includes(index)}
+                  checked={selectedIndices.includes(index)}
                   onChange={() => toggleSelect(index)}
                 />
-                <span>
-                  {file.name} ({(file.size / (1024 * 1024)).toFixed(2)}MB)
+                <span className="truncate w-40 sm:w-64">
+                  {file.name} ({(file.size / (1024 * 1024)).toFixed(2)} MB)
                 </span>
-              </div>
+              </label>
               <button
                 onClick={() => deleteFile(index)}
                 className="text-red-500 hover:text-red-700 text-xs"
@@ -174,35 +201,37 @@ export default function Mixer() {
             </li>
           ))}
         </ul>
-      </div>
+      </section>
 
-      {/* Right Section: Instructions and Mixing Button */}
-      <div className="w-full min-h-[40vh] lg:w-2/5 max-w-lg bg-white p-6 rounded-lg shadow-md lg:ml-10 flex flex-col items-center">
-        <h3 className="text-xl font-semibold mb-4">Instructions</h3>
-        <ol className="text-sm text-gray-600 list-decimal pl-4">
-          <li>Upload up to {maxFiles} MP3 files (maximum size of {maxSize / (1024 * 1024)}MB per file).</li>
-          <li>Press &quot;Generate Mix&quot; to start the mixing process.</li>
-          <li>Wait for the file to be generated.</li>
+      {/* Instructions and Actions Section */}
+      <section className="w-full lg:w-1/3 bg-white p-5 sm:p-6 rounded-xl shadow-md flex flex-col items-center text-center">
+        <h3 className="text-lg sm:text-xl font-semibold mb-4">Instructions</h3>
+        <ol className="text-sm text-gray-600 list-decimal pl-5 text-left w-full max-w-xs">
+          <li>Upload up to {MAX_FILES} MP3 files (max 50MB each).</li>
+          <li>Select two files to reorder (optional).</li>
+          <li>Tap “Generate Mix” to start.</li>
         </ol>
 
-        {/* Buttons for actions */}
-        <div className="flex gap-2 mt-5">
+        <div className="flex flex-col sm:flex-row gap-2 mt-6 w-full max-w-xs">
           <StyledButton
             text="Swap Selected"
             onClick={swapSelectedFiles}
             variant="custom"
             customBgColor="bg-yellow"
-            style="mt-5"
+            aria-disabled={selectedIndices.length !== 2}
+            disabled={selectedIndices.length !== 2}
           />
-          <StyledButton text="Generate Mix" style="mt-5" onClick={handleGenerateMix} />
+          <StyledButton
+            text="Generate Mix"
+            onClick={handleGenerateMix}
+            disabled={files.length < 2 || isLoading}
+          />
         </div>
-      </div>
+      </section>
 
-      {/* Loading Overlay */}
+      {/* Loading and Error UI */}
       <LoadingOverlay isLoading={isLoading} />
-
-      {/* Error Dialog */}
-      {showError && <ErrorDialog message={errorMessage} onClose={handleCloseErrorDialog} />}
+      {error.visible && <ErrorDialog message={error.message} onClose={clearError} />}
     </div>
-  );
+  )
 }

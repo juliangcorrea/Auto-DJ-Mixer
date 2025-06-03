@@ -1,351 +1,354 @@
 import lamejs from 'lamejs'
-import { segmentSongByFeatures } from '../utils/audioAnalysisUtils';
+import { 
+  segmentSongByFeatures, 
+  calculateAverageDistance, 
+  calculateAverageFeatures, 
+  euclideanDistance, 
+  getFeatureAverages,
+  compareFeatures
+} from '../utils/audioAnalysisUtils'
 
-export async function findMixPoint(firstAudioBuffer, secondAudioBuffer, fadein = 0){
-  const firstSong = await segmentSongByFeatures(firstAudioBuffer, fadein)
-  const secondSong = await segmentSongByFeatures(secondAudioBuffer)
-
-  function euclideanDistance(features1, features2) {
-    let distance = 0;
-    for (let i = 0; i < features1.length; i++) {
-      distance += Math.pow(features1[i] - features2[i], 2);
-    }
-    return Math.sqrt(distance)
+// Finds optimal transition points between two audio tracks
+// by comparing feature segments and validating smooth continuation.
+export async function findMixPoint(firstAudioBuffer, secondAudioBuffer, fadein = 0) {
+  if (!firstAudioBuffer || !secondAudioBuffer) {
+    throw new Error("Both audio buffers must be provided to findMixPoint.")
   }
 
-  function calculateAverageFeatures(featureObjects) {
-    let avgFeatures = {};
-    let count = featureObjects.length;
-  
-    // Early exit if featureObjects is empty or no valid features are present
-    if (count === 0 || !featureObjects[0] || !featureObjects[0].features) {
-      console.error("Invalid featureObjects data:", featureObjects);
-      return avgFeatures;
-    }
-  
-    // Initialize avgFeatures with zero values based on the first feature object's keys
-    for (let key of Object.keys(featureObjects[0].features)) {
-      avgFeatures[key] = 0;
-    }
-  
-    // Loop through each object and accumulate the feature values
-    featureObjects.forEach(obj => {
-      if (obj.features) {
-        for (let key of Object.keys(obj.features)) {
-          avgFeatures[key] += obj.features[key];
-        }
-      } else {
-        console.warn("Missing 'features' in one of the objects:", obj);
-      }
-    });
-  
-    // Calculate the average for each feature
-    for (let key in avgFeatures) {
-      avgFeatures[key] /= count;
-    }
-  
-    return avgFeatures;
-  }  
-
-  function calculateAverageDistance(song1, song2) {
-    let distances = [];
-
-    // Loop through each sub-array in song1 and song2
-    for (let i = 0; i < song1.length; i++) {
-      for (let j = 0; j < song2.length; j++) {
-        // Get the average features for each sub-array
-        let avgFeatures1 = calculateAverageFeatures(song1[i]);
-        let avgFeatures2 = calculateAverageFeatures(song2[j]);
-        
-        // Calculate the Euclidean distance between the two sub-arrays
-        let features1 = Object.values(avgFeatures1);
-        let features2 = Object.values(avgFeatures2);
-        let dist = euclideanDistance(features1, features2);
-        distances.push(dist);
-      }
-    }
-
-    // Calculate the average distance between all pairs
-    let totalDistance = distances.reduce((sum, dist) => sum + dist, 0);
-    return totalDistance / distances.length;
+  // [1] Extract segmented features from both audio buffers
+  let firstSongSegments, secondSongSegments
+  try {
+    firstSongSegments = await segmentSongByFeatures(firstAudioBuffer, fadein)
+    secondSongSegments = await segmentSongByFeatures(secondAudioBuffer)
+  } catch (err) {
+    console.error("Error during segmentation in findMixPoint:", err)
+    throw err
   }
 
-  function findMixPoints(song1, song2) {
-    let mixPoints = [];
-  
-    // Calculate the average distance between all subarray pairs
-    let avgDistance = calculateAverageDistance(song1, song2);
-  
-    // Loop through all subarray pairs and check for matches
-    for (let i = 1; i < song1.length - 1; i++) { // Ensure there's a next segment
-      for (let j = 0; j < song2.length - 1; j++) { // Ensure there's a next segment
-  
-        // Get the average features for each sub-array
-        let avgFeatures1 = calculateAverageFeatures(song1[i]);
-        let avgFeatures2 = calculateAverageFeatures(song2[j]);
-  
-        // Calculate the Euclidean distance between the two sub-arrays
-        let features1 = Object.values(avgFeatures1);
-        let features2 = Object.values(avgFeatures2);
-        let dist = euclideanDistance(features1, features2);
-  
-        if (dist <= 0.2 * avgDistance) {
-          // Now check the next segments
-          let nextFeatures1 = calculateAverageFeatures(song1[i + 1]);
-          let nextFeatures2 = calculateAverageFeatures(song2[j + 1]);
-  
-          let nextDist = euclideanDistance(
-            Object.values(nextFeatures1),
-            Object.values(nextFeatures2)
-          );
-  
-          let similarity = 1 - nextDist / avgDistance; // Normalize similarity (1 = identical, 0 = max distance)
-          let currentSimilarity = 1 - dist / avgDistance
-          let similarityPercentage = currentSimilarity * 100
+  if (!Array.isArray(firstSongSegments) || firstSongSegments.length < 3 ||
+      !Array.isArray(secondSongSegments) || secondSongSegments.length < 2) {
+    // Not enough segments to find a meaningful mix point
+    return [null]
+  }
 
-          if (similarity >= 0.6) {
-            mixPoints.push([i, j, similarityPercentage.toFixed(2)]);
-          }
+  // [2] Calculate global average distance as baseline similarity metric
+  const avgDistance = calculateAverageDistance(firstSongSegments, secondSongSegments)
+  if (typeof avgDistance !== "number" || avgDistance <= 0) {
+    // Invalid average distance, cannot compare
+    return [null]
+  }
+
+  // Container for candidate mix points: [indexFirstSong, indexSecondSong, similarityScore]
+  const candidateMixPoints = []
+
+  // [3] Scan segments of both songs to find compatible mix points
+  // Skip first and last segments of first song to avoid edge artifacts
+  for (let i = 1; i < firstSongSegments.length - 1; i++) {
+    const firstFeaturesAvg = calculateAverageFeatures(firstSongSegments[i])
+    if (!firstFeaturesAvg) continue
+    const featuresFirst = Object.values(firstFeaturesAvg)
+
+    for (let j = 0; j < secondSongSegments.length - 1; j++) {
+      const secondFeaturesAvg = calculateAverageFeatures(secondSongSegments[j])
+      if (!secondFeaturesAvg) continue
+      const featuresSecond = Object.values(secondFeaturesAvg)
+
+      const currentDistance = euclideanDistance(featuresFirst, featuresSecond)
+      if (typeof currentDistance !== "number") continue
+
+      // Check if current segment similarity passes 20% threshold
+      if (currentDistance <= 0.2 * avgDistance) {
+        const nextFeaturesFirstAvg = calculateAverageFeatures(firstSongSegments[i + 1])
+        const nextFeaturesSecondAvg = calculateAverageFeatures(secondSongSegments[j + 1])
+        if (!nextFeaturesFirstAvg || !nextFeaturesSecondAvg) continue
+
+        const nextFeaturesFirst = Object.values(nextFeaturesFirstAvg)
+        const nextFeaturesSecond = Object.values(nextFeaturesSecondAvg)
+
+        const nextDistance = euclideanDistance(nextFeaturesFirst, nextFeaturesSecond)
+        if (typeof nextDistance !== "number") continue
+
+        // Convert distances to similarity percentages (higher = better)
+        const currentSimilarity = (1 - currentDistance / avgDistance) * 100
+        const nextSimilarity = (1 - nextDistance / avgDistance) * 100
+
+        // Ensure next segments have at least 60% similarity for smooth continuation
+        if (nextSimilarity >= 60) {
+          candidateMixPoints.push([i, j, currentSimilarity.toFixed(2)])
         }
       }
     }
-
-    if (mixPoints.length === 0) {
-      return [null];
-    }
-
-    let maxSimilarity = Math.max(...mixPoints.map(mp => parseFloat(mp[2])));
-
-    return mixPoints.filter(mp => parseFloat(mp[2]) === maxSimilarity);
   }
 
-  let mixPoints = findMixPoints(firstSong, secondSong)[0]
+  // [4] Return the best mix point or [null] if none found
+  if (candidateMixPoints.length === 0) {
+    return [null]
+  }
 
-  return mixPoints
+  // Find the highest similarity score among candidates
+  const maxSimilarity = Math.max(...candidateMixPoints.map((p) => parseFloat(p[2])))
+
+  // Return the first candidate with the highest similarity
+  return candidateMixPoints.find((p) => parseFloat(p[2]) === maxSimilarity)
 }
 
-export async function findMixTime(firstAudioBuffer, secondAudioBuffer, fadein = 0){
+// Slides a 7-segment (~7 seconds) window over the first track's mix points
+// to find the best alignment with the incoming track’s intro segments.
+function findMixStart(firstMixPoint, secondMixPoint) {
+  // Defensive checks to avoid errors if inputs are invalid or too short
+  if (!Array.isArray(firstMixPoint) || firstMixPoint.length < 7) {
+    throw new Error("firstMixPoint must be an array with at least 7 segments.")
+  }
+  if (!Array.isArray(secondMixPoint) || secondMixPoint.length < 7) {
+    throw new Error("secondMixPoint must be an array with at least 7 segments.")
+  }
+
+  // [1] Extract the first 7 segments (~7 seconds) of the second track
+  const secondTrackWindow = secondMixPoint.slice(0, 7)
+
+  // [2] Compute average features for those 7 segments
+  const secondTrackAverages = getFeatureAverages(secondTrackWindow)
+  if (!secondTrackAverages) {
+    throw new Error("Failed to get feature averages for second track window.")
+  }
+
+  let highestSimilarity = -Infinity
+  let bestMatchIndex = null
+
+  // [3] Slide a 7-segment window over the first track to compare similarity
+  for (let i = 0; i <= firstMixPoint.length - 7; i++) {
+    const firstTrackWindow = firstMixPoint.slice(i, i + 7)
+
+    // [4] Compute average features for current window in first track
+    const firstTrackAverages = getFeatureAverages(firstTrackWindow)
+    if (!firstTrackAverages) continue
+
+    // [5] Compare features and compute similarity score
+    const similarity = compareFeatures(secondTrackAverages, firstTrackAverages)
+    if (typeof similarity !== "number") continue
+
+    // [6] Update highest similarity and best match index if better
+    if (similarity > highestSimilarity) {
+      highestSimilarity = similarity
+      bestMatchIndex = i
+    }
+  }
+
+  if (bestMatchIndex === null) {
+    throw new Error("No suitable mix start point found.")
+  }
+
+  // [7] Return start times:
+  // - Start time in first track at best matching window
+  // - Start time in second track minus 3 seconds (fade-in offset)
+  return [
+    firstMixPoint[bestMatchIndex].start,
+    Math.max(0, secondMixPoint[0].start - 3) // Ensure non-negative start time
+  ]
+}
+
+// Determines the best time points to start mixing two audio tracks
+// by analyzing segment similarity and timing alignment.
+export async function findMixTime(firstAudioBuffer, secondAudioBuffer, fadein = 0) {
+  if (!firstAudioBuffer || !secondAudioBuffer) {
+    throw new Error("Both audio buffers must be provided to findMixTime.")
+  }
+
+  // [1] Find the best matching segment indices between the two tracks
   const mixingPoint = await findMixPoint(firstAudioBuffer, secondAudioBuffer, fadein)
-  if (mixingPoint === null) {
-    return null;
-  }
-  const songData1 = await segmentSongByFeatures(firstAudioBuffer, fadein)
-  const songData2 = await segmentSongByFeatures(secondAudioBuffer)
-  const firstMixPoint = songData1[mixingPoint[0]]
-  const secondMixPoint = songData2[mixingPoint[1]]
-  const lengthSecondSong = songData2[songData2.length - 1][songData2[songData2.length - 1].length - 1].start
-
-  function findMixStart(firstMixPoint, secondMixPoint) {
-    // 1. Get the first 7 seconds of the second track (secondMixPoint)
-    const secondTrack7Sec = secondMixPoint.slice(0, 7);  // Get the first 7 segments
-  
-    // 2. Calculate the average of each feature for the first 7 seconds of secondMixPoint
-    const secondTrackAverages = getFeatureAverages(secondTrack7Sec);
-  
-    let highestSimilarity = 0;
-
-    let bestMatchIndex = null;
-  
-    for (let i = 0; i <= firstMixPoint.length - 8; i++) {
-      const firstTrack7Sec = firstMixPoint.slice(i, i + 7);  // Current 7-second window
-  
-      // 4. Calculate the average of each feature for the current 7 seconds of firstMixPoint
-      const firstTrackAverages = getFeatureAverages(firstTrack7Sec);
-  
-      // 5. Compare the averages between the two 7-second windows
-      const similarity = compareFeatures(secondTrackAverages, firstTrackAverages);
-  
-      // 6. Track the highest similarity and update the best match index
-      if (similarity > highestSimilarity) {
-        highestSimilarity = similarity;
-        bestMatchIndex = i;
-      }
-    }
-
-    return [firstMixPoint[bestMatchIndex].start, secondMixPoint[0].start - 3, lengthSecondSong];
+  if (!mixingPoint || mixingPoint[0] === null || mixingPoint[1] === null) {
+    // No suitable mix point found
+    return null
   }
 
-  function getFeatureAverages(segments) {
-    const featureNames = Object.keys(segments[0].features);  // List of feature names
-    const averages = {};
-  
-    // Calculate average for each feature across all segments in the window
-    featureNames.forEach((featureName) => {
-      averages[featureName] = segments.reduce((sum, segment) => sum + segment.features[featureName], 0) / segments.length;
-    });
-  
-    return averages;
-  }
-  
-  function compareFeatures(features1, features2) {
-    let totalSimilarity = 0;
-    const featureNames = Object.keys(features1);  // Dynamically get all feature names
-  
-    // Compare each feature
-    for (let featureName of featureNames) {
-      const similarity = compareFeature(features1[featureName], features2[featureName]);
-      totalSimilarity += similarity;
-    }
-  
-    // Calculate the average similarity across all features
-    return totalSimilarity / featureNames.length;
-  }
-  
-  function compareFeature(value1, value2) {
-    // Calculate similarity as the percentage of similarity (adjust this as needed)
-    const distance = Math.abs(value1 - value2);  // Euclidean-like distance (absolute difference)
-    const maxPossibleDifference = Math.max(value1, value2);  // To normalize the similarity
-    const similarity = 1 - (distance / maxPossibleDifference);  // Similarity: 1 = identical, 0 = no match
-  
-    return similarity;
+  // [2] Segment both tracks into feature-based chunks
+  const firstTrackSegments = await segmentSongByFeatures(firstAudioBuffer, fadein)
+  const secondTrackSegments = await segmentSongByFeatures(secondAudioBuffer)
+
+  const firstMixSegment = firstTrackSegments[mixingPoint[0]]
+  const secondMixSegment = secondTrackSegments[mixingPoint[1]]
+
+  if (!firstMixSegment || !secondMixSegment) {
+    return null
   }
 
-  const mixStart = findMixStart(firstMixPoint, secondMixPoint)
+  // [3] Get the start time of the last segment in the second track
+  const lastSecondTrackSegment = secondTrackSegments[secondTrackSegments.length - 1]
+  const lastSegmentStartTime = lastSecondTrackSegment?.[lastSecondTrackSegment.length - 1]?.start ?? 0
 
-  return mixStart
+  // [4] Compute mix start times using the matched segments
+  let mixStartTimes
+  try {
+    mixStartTimes = findMixStart(firstMixSegment, secondMixSegment)
+  } catch (err) {
+    console.warn("Failed to find mix start times:", err)
+    return null
+  }
+
+  // Append the reference end time of the second track
+  mixStartTimes.push(lastSegmentStartTime)
+
+  return mixStartTimes
 }
 
-export async function mixSongs(audioBuffers) {
-  const songMixingPoints = Array(audioBuffers.length).fill(null).map(() => [null, null]);
-
-  // STEP 1: Calculate mix points
-  for (let i = 0; i < audioBuffers.length - 1; i++) {
-    const bufferA = audioBuffers[i];
-    const bufferB = audioBuffers[i + 1];
-    let fadein = 0;
-
-    if (i > 0 && songMixingPoints[i][0] !== null) {
-      const fadeInTime = songMixingPoints[i][0];
-      const remainingDuration = bufferA.duration - fadeInTime;
-      const halfUsedStart = Math.floor(fadeInTime + remainingDuration / 2);
-      fadein = halfUsedStart;
-    }
-
-    const mixTimes = await findMixTime(bufferA, bufferB, fadein);
-
-    if (mixTimes !== null) {
-      const [fadeOutTime, fadeInTime] = mixTimes;
-
-      if (i === 0) songMixingPoints[i][0] = null;
-
-      if (fadeOutTime !== null && fadeInTime !== null) {
-        songMixingPoints[i][1] = fadeOutTime;
-        songMixingPoints[i + 1][0] = fadeInTime;
-      }
-    }
+// mixSongs: Mixes multiple audio buffers with crossfade transitions,
+// encodes to MP3 using lamejs, and returns the resulting blob.
+export default async function mixSongs(audioBuffers) {
+  if (!Array.isArray(audioBuffers) || audioBuffers.length === 0) {
+    throw new Error("No audio buffers provided for mixing.")
   }
 
-  // STEP 2: Apply fades and combine
-  const sampleRate = audioBuffers[0].sampleRate;
-  const fadeInDuration = 5;
-  const fadeOutDuration = 7;
-  const fadeInSamples = fadeInDuration * sampleRate;
-  const fadeOutSamples = fadeOutDuration * sampleRate;
-  let finalLength = 0;
+  try {
+    // Initialize mix points: [fadeInTime, fadeOutTime] for each song
+    const songMixPoints = audioBuffers.map(() => [null, null])
 
-  const processedChannels = [];
+    for (let i = 0; i < audioBuffers.length - 1; i++) {
+      const currentBuffer = audioBuffers[i]
+      const nextBuffer = audioBuffers[i + 1]
+      let fadein = 0
 
-  for (let i = 0; i < audioBuffers.length; i++) {
-    const buffer = audioBuffers[i];
-    const channel = buffer.getChannelData(0);
-    const newChannel = new Float32Array(channel.length);
-    newChannel.set(channel);
+      if (i > 0 && songMixPoints[i][0] !== null) {
+        const fadeInTime = songMixPoints[i][0]
+        const remainingDuration = currentBuffer.duration - fadeInTime
+        if (remainingDuration > 0) {
+          fadein = fadeInTime + remainingDuration / 2
+        }
+      }
 
-    const [fadeInTime, fadeOutTime] = songMixingPoints[i];
+      const mixTimes = await findMixTime(currentBuffer, nextBuffer, fadein)
+      if (mixTimes !== null && Array.isArray(mixTimes)) {
+        const [fadeOutTime, fadeInTime] = mixTimes
 
-    if (fadeInTime !== null) {
-      const startFadeIn = Math.floor(fadeInTime * sampleRate);
-      for (let j = 0; j < fadeInSamples && (startFadeIn + j) < newChannel.length; j++) {
-        const fadeFactor = j / fadeInSamples;
-        newChannel[startFadeIn + j] *= fadeFactor;
+        if (i === 0) {
+          songMixPoints[i][0] = null
+        }
+
+        if (fadeOutTime != null && fadeInTime != null) {
+          songMixPoints[i][1] = fadeOutTime
+          songMixPoints[i + 1][0] = fadeInTime
+        }
       }
     }
 
-    if (fadeOutTime !== null) {
-      const startFadeOut = Math.floor(fadeOutTime * sampleRate);
-      for (let j = 0; j < fadeOutSamples && (startFadeOut + j) < newChannel.length; j++) {
-        const fadeFactor = 1 - (j / fadeOutSamples);
-        newChannel[startFadeOut + j] *= fadeFactor;
+    const sampleRate = audioBuffers[0].sampleRate
+    const FADE_IN_SECONDS = 5
+    const FADE_OUT_SECONDS = 7
+    const fadeInSamples = Math.floor(FADE_IN_SECONDS * sampleRate)
+    const fadeOutSamples = Math.floor(FADE_OUT_SECONDS * sampleRate)
+
+    let finalLength = 0
+    const processedChannels = []
+
+    for (let i = 0; i < audioBuffers.length; i++) {
+      const buffer = audioBuffers[i]
+      const channelData = buffer.getChannelData(0)
+      const processedData = new Float32Array(channelData.length)
+      processedData.set(channelData)
+
+      const [fadeInTime, fadeOutTime] = songMixPoints[i]
+
+      if (fadeInTime !== null) {
+        const fadeInStartSample = Math.floor(fadeInTime * sampleRate)
+        for (let j = 0; j < fadeInSamples && fadeInStartSample + j < processedData.length; j++) {
+          processedData[fadeInStartSample + j] *= j / fadeInSamples
+        }
+      }
+
+      if (fadeOutTime !== null) {
+        const fadeOutStartSample = Math.floor(fadeOutTime * sampleRate)
+        for (let j = 0; j < fadeOutSamples && fadeOutStartSample + j < processedData.length; j++) {
+          processedData[fadeOutStartSample + j] *= 1 - j / fadeOutSamples
+        }
+      }
+
+      processedChannels.push(processedData)
+
+      let segmentStart = 0
+      let segmentEnd = buffer.length
+
+      if (fadeInTime !== null) {
+        segmentStart = Math.floor(fadeInTime * sampleRate)
+      }
+
+      if (fadeOutTime !== null && i < audioBuffers.length - 1) {
+        segmentEnd = Math.min(buffer.length, Math.floor(fadeOutTime * sampleRate) + fadeOutSamples)
+      }
+
+      finalLength += segmentEnd - segmentStart
+
+      if (i < audioBuffers.length - 1 && fadeOutTime !== null) {
+        finalLength -= fadeOutSamples
       }
     }
 
-    processedChannels.push(newChannel);
+    const mixedChannel = new Float32Array(finalLength)
+    let offset = 0
 
-    // Update final length (with overlap accounted)
-    let start = 0;
-    let end = buffer.length;
-    if (songMixingPoints[i][0] !== null) {
-      start = Math.floor(songMixingPoints[i][0] * sampleRate);
-    }
-    if (songMixingPoints[i][1] !== null && i < audioBuffers.length - 1) {
-      end = Math.floor(songMixingPoints[i][1] * sampleRate) + fadeOutSamples;
-    }
-    finalLength += (end - start);
-    if (i < audioBuffers.length - 1 && songMixingPoints[i][1] !== null) {
-      finalLength -= fadeOutSamples; // overlap correction
-    }
-  }
+    for (let i = 0; i < processedChannels.length; i++) {
+      const currentData = processedChannels[i]
+      let segmentStart = 0
+      let segmentEnd = currentData.length
 
-  const mixedChannel = new Float32Array(finalLength);
-  let offset = 0;
+      if (i === 0 && songMixPoints[i][0] !== null) {
+        segmentStart = Math.floor(songMixPoints[i][0] * sampleRate)
+      }
 
-  for (let i = 0; i < processedChannels.length; i++) {
-    const current = processedChannels[i];
-    let start = 0;
-    let end = current.length;
+      if (i < audioBuffers.length - 1 && songMixPoints[i][1] !== null) {
+        segmentEnd = Math.min(currentData.length, Math.floor(songMixPoints[i][1] * sampleRate) + fadeOutSamples)
+      }
 
-    if (i > 0 && songMixingPoints[i][0] !== null) {
-      start = Math.floor(songMixingPoints[i][0] * sampleRate);
-    }
+      // Avoid negative lengths or invalid segments
+      if (segmentEnd <= segmentStart) continue
 
-    if (i < processedChannels.length - 1 && songMixingPoints[i][1] !== null) {
-      end = Math.floor(songMixingPoints[i][1] * sampleRate) + fadeOutSamples;
-    }
+      mixedChannel.set(currentData.subarray(segmentStart, segmentEnd), offset)
+      offset += segmentEnd - segmentStart
 
-    const lengthToCopy = end - start;
-
-    for (let j = 0; j < lengthToCopy; j++) {
-      const sample = current[start + j] || 0;
-      if (offset + j < mixedChannel.length) {
-        mixedChannel[offset + j] += sample; // handles overlap
+      if (i < audioBuffers.length - 1 && songMixPoints[i][1] !== null) {
+        offset -= fadeOutSamples
       }
     }
 
-    offset += lengthToCopy;
-    if (i < processedChannels.length - 1 && songMixingPoints[i][1] !== null) {
-      offset -= fadeOutSamples;
+    // Convert Float32Array samples [-1, 1] to Int16 for lamejs encoder
+    const mp3encoder = new lamejs.Mp3Encoder(1, sampleRate, 128)
+    const sampleBlockSize = 1152
+    const mp3Data = []
+
+    for (let i = 0; i < mixedChannel.length; i += sampleBlockSize) {
+      const sampleChunk = mixedChannel.subarray(i, i + sampleBlockSize)
+      const samples16bit = new Int16Array(sampleChunk.length)
+
+      for (let j = 0; j < sampleChunk.length; j++) {
+        // Clamp and convert to 16-bit PCM
+        const s = Math.max(-1, Math.min(1, sampleChunk[j]))
+        samples16bit[j] = s < 0 ? s * 0x8000 : s * 0x7FFF
+      }
+
+      const mp3buf = mp3encoder.encodeBuffer(samples16bit)
+      if (mp3buf.length > 0) {
+        mp3Data.push(new Uint8Array(mp3buf))
+      }
     }
+
+    const mp3buf = mp3encoder.flush()
+    if (mp3buf.length > 0) {
+      mp3Data.push(new Uint8Array(mp3buf))
+    }
+
+    // Concatenate all mp3 chunks into a single Uint8Array
+    const totalLength = mp3Data.reduce((sum, arr) => sum + arr.length, 0)
+    const mp3BlobArray = new Uint8Array(totalLength)
+    let mp3Offset = 0
+
+    for (const chunk of mp3Data) {
+      mp3BlobArray.set(chunk, mp3Offset)
+      mp3Offset += chunk.length
+    }
+
+    const blob = new Blob([mp3BlobArray], { type: "audio/mpeg" })
+    return blob
+
+  } catch (err) {
+    console.error("Error while mixing songs:", err)
+    throw err
   }
-
-  // STEP 3: Encode to MP3 using lamejs
-  const mp3encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
-  const samples = mixedChannel;
-  const mp3Data = [];
-
-  const samplesInt16 = samples.map(s => Math.max(-1, Math.min(1, s)) * 32767).map(s => s | 0);
-  const chunkSize = 1152;
-  for (let i = 0; i < samplesInt16.length; i += chunkSize) {
-    const chunk = samplesInt16.slice(i, i + chunkSize);
-    const mp3buf = mp3encoder.encodeBuffer(chunk);
-    if (mp3buf.length > 0) mp3Data.push(new Uint8Array(mp3buf));
-  }
-
-  const endBuf = mp3encoder.flush();
-  if (endBuf.length > 0) mp3Data.push(new Uint8Array(endBuf));
-
-  // STEP 4: Trigger browser download
-  const blob = new Blob(mp3Data, { type: 'audio/mp3' });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement('a');
-  a.style.display = 'none';
-  a.href = url;
-  a.download = 'mixed_songs.mp3';
-  document.body.appendChild(a);
-  a.click();
-
-  URL.revokeObjectURL(url);
-  document.body.removeChild(a);
-
-  return blob;
 }
