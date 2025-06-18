@@ -4,16 +4,20 @@ import { useEffect, useRef } from 'react'
 export default function ErrorDialog({ message, onClose }) {
   const dialogRef = useRef(null)
 
-  // Focus the dialog container when it mounts for accessibility
+  // Always call useEffect; only focus if message is valid
   useEffect(() => {
+    if (!message || message.trim() === '') return
     dialogRef.current?.focus()
-  }, [])
+  }, [message])
 
-  // Keyboard handler for accessibility, supporting Enter and Escape keys
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === 'Escape') {
       onClose()
     }
+  }
+
+  if (!message || message.trim() === '') {
+    return null
   }
 
   return (

@@ -1,5 +1,5 @@
 import { segmentValues } from './audioExtractionUtils'
-import { getSongData } from '../audioExtraction/audioExtractionFunctions'
+import getSongData from '../audioExtraction/audioExtractionFunctions'
 
 
  // Finds common index ranges across multiple arrays by grouping and merging
@@ -139,11 +139,10 @@ export async function segmentSongByFeatures(audioBuffer, fadein = 0) {
 
   const fullSongData = await getSongData(audioBuffer, fadein)
   const [fullArray, featureDatasets] = fullSongData
-
-  const arrays = Object.values(featureDatasets).map(segmentValues)
+  const arrays = Object.values(featureDatasets).map(value => segmentValues(value))
   const filteredArrays = arrays.filter(arr => arr.length >= 4)
-
   const commonIndexes = findCommonIndexes(filteredArrays)
+  
   if (!commonIndexes) return []
 
   const segmentArray = (arr, segments) =>

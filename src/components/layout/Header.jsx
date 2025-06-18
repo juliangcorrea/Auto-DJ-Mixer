@@ -11,10 +11,18 @@ function Header() {
     <header className="w-full bg-gray-900 text-white shadow-md">
       <div className="max-w-7xl mx-auto flex justify-between items-center px-4 py-4 md:py-5">
         {/* Site Title */}
-        <Link to="/" className="text-2xl font-bold tracking-tight hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">
-          My Website
-        </Link>
-
+        <div className="flex items-center gap-2">
+            <img 
+              src="/src/assets/react.svg"
+              alt="Logo"
+              className="w-8 h-8"
+              loading="lazy"
+            />
+            <Link to="/" className="text-2xl font-bold tracking-tight hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">
+              My Website
+            </Link>
+        </div>
+        
         {/* Hamburger Button (Mobile only) */}
         <button
           className="md:hidden text-2xl focus:outline-none focus:ring-2 focus:ring-white rounded"
@@ -29,8 +37,8 @@ function Header() {
         {/* Desktop Navigation */}
         <nav className="hidden md:block" aria-label="Primary navigation">
           <ul className="flex gap-6 text-base font-medium">
-            {['/', '/mixer', '/download'].map((path, index) => {
-              const labels = ['Home', 'Mixer', 'Download']
+            {['/', '/mixer', '/download', '/testing'].map((path, index) => {
+              const labels = ['Home', 'Mixer', 'Download', 'Testing']
               return (
                 <li key={path}>
                   <NavLink

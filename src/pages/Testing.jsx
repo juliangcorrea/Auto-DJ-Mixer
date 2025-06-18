@@ -299,7 +299,6 @@ function extractFeatureDatasets(data) {
 }
 
 function segmentValues(data, minSegLength = 5) {
-    
   let segments = [];
   data = data.map(element => ({
     ...element,
@@ -519,7 +518,7 @@ function findCommonIndexes(arrays) {
 
 async function segmentSongByFeatures(audioBuffer, fadein = 0){
   const fullSongData = await getSongData(audioBuffer, fadein)
-
+  console.log(fullSongData)
   const featureDatasets = fullSongData[1]
 
   const arrays = [];
@@ -992,7 +991,7 @@ const TestMixer = () => {
         return;
       }
 
-      await mixSongs(successfulBuffers); // Replace with your mixing function
+      await mixSongs(successfulBuffers); 
 
       await audioContext.close();
     } catch (error) {

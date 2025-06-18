@@ -58,75 +58,74 @@ async function processAudioEssentia(audioBuffer) {
 // Splits audio into frames, extracts features per frame,
 // then groups frames into 1-second segments with aggregated features.
 async function processAudioMeyda(audioBuffer) {
-  const sampleRate = audioBuffer.sampleRate
-  const bufferSize = 1024
-  const desiredSegmentDuration = 1 // seconds
-
-  const frameDuration = bufferSize / sampleRate
-  const frameRate = 1 / frameDuration
-  const framesPerSegment = Math.round(frameRate * desiredSegmentDuration)
-
-  if (typeof sampleRate !== 'number' || sampleRate <= 0 || isNaN(sampleRate)) {
-    throw new Error("Invalid sample rate.")
+  const sampleRate = audioBuffer.sampleRate;
+  if (sampleRate <= 0 || isNaN(sampleRate)) {
+    throw new Error("Invalid sample rate.");
   }
+
+  const bufferSize = 1024;
+  const desiredSegmentDuration = 1; // seconds
+  const frameDuration = bufferSize / sampleRate;
+  const frameRate = 1 / frameDuration;
+  const segmentLength = Math.round(frameRate * desiredSegmentDuration);
 
   const songData = {
     featureHistory: [],
     segmentBoundaries: [],
-  }
+  };
 
-  const channelData = audioBuffer.getChannelData(0)
+  const channelData = audioBuffer.getChannelData(0);
 
   function processFeatures(features) {
-    if (!features) return
+    if (!features) return;
 
     songData.featureHistory.push({
       time: features.currentTime,
       energy: features.energy,
       rms: features.rms,
       spectralCentroid: features.spectralCentroid,
-      spectralRolloff: features.spectralRolloff,  // consistent naming here
+      rollOff: features.spectralRolloff,  // renamed for consistency
       zcr: features.zcr,
-    })
+    });
 
-    createSegmentByLength(songData, framesPerSegment)
+    createSegmentByLength(songData, segmentLength);
   }
 
   for (let i = 0; i <= channelData.length - bufferSize; i += bufferSize) {
-    const frame = channelData.slice(i, i + bufferSize)
-
-    if (frame.length < bufferSize) continue
+    const frame = channelData.slice(i, i + bufferSize);
+    if (frame.length < bufferSize) continue;
 
     const features = Meyda.extract(
       ['rms', 'spectralCentroid', 'spectralRolloff', 'zcr', 'energy'],
       frame,
       { sampleRate }
-    )
+    );
 
     if (features) {
-      features.currentTime = i / sampleRate
-      processFeatures(features)
+      features.currentTime = i / sampleRate;
+      processFeatures(features);
     }
   }
 
-  return songData.segmentBoundaries
+  return songData.segmentBoundaries;
 }
+
 
 // Processes an audio buffer through Essentia and Meyda,
 // normalizes and optionally trims data based on fade-in,
 // then extracts feature datasets for downstream use.
 export default async function getSongData(audioBuffer, fadein = 0) {
   try {
-    const essentiaResults = await processAudioEssentia(audioBuffer)
-    const meydaResults = await processAudioMeyda(audioBuffer)
-    let songData = normalizeData(essentiaResults, meydaResults)
+    const essentiaResults = await processAudioEssentia(audioBuffer);
+    const meydaResults = await processAudioMeyda(audioBuffer);
+    let songData = normalizeData(essentiaResults, meydaResults);
     if (fadein > 0) {
-      songData = songData.slice(fadein)
+      songData = songData.slice(fadein);
     }
-    const featureDatasets = extractFeatureDatasets(songData)
-    return [songData, featureDatasets]
+    const featureDatasets = extractFeatureDatasets(songData);
+    return [songData, featureDatasets];
   } catch (err) {
-    console.error("Error in getSongData:", err)
-    throw err
+    console.error("Error in getSongData:", err);
+    throw err;
   }
 }

@@ -199,7 +199,13 @@ export default async function mixSongs(audioBuffers) {
   }
 
   try {
-    // Initialize mix points: [fadeInTime, fadeOutTime] for each song
+    const sampleRate = audioBuffers[0].sampleRate
+    const FADE_IN_SECONDS = 5
+    const FADE_OUT_SECONDS = 7
+    const fadeInSamples = Math.floor(FADE_IN_SECONDS * sampleRate)
+    const fadeOutSamples = Math.floor(FADE_OUT_SECONDS * sampleRate)
+
+    // Compute mix points
     const songMixPoints = audioBuffers.map(() => [null, null])
 
     for (let i = 0; i < audioBuffers.length - 1; i++) {
@@ -216,13 +222,8 @@ export default async function mixSongs(audioBuffers) {
       }
 
       const mixTimes = await findMixTime(currentBuffer, nextBuffer, fadein)
-      if (mixTimes !== null && Array.isArray(mixTimes)) {
+      if (mixTimes && Array.isArray(mixTimes)) {
         const [fadeOutTime, fadeInTime] = mixTimes
-
-        if (i === 0) {
-          songMixPoints[i][0] = null
-        }
-
         if (fadeOutTime != null && fadeInTime != null) {
           songMixPoints[i][1] = fadeOutTime
           songMixPoints[i + 1][0] = fadeInTime
@@ -230,14 +231,8 @@ export default async function mixSongs(audioBuffers) {
       }
     }
 
-    const sampleRate = audioBuffers[0].sampleRate
-    const FADE_IN_SECONDS = 5
-    const FADE_OUT_SECONDS = 7
-    const fadeInSamples = Math.floor(FADE_IN_SECONDS * sampleRate)
-    const fadeOutSamples = Math.floor(FADE_OUT_SECONDS * sampleRate)
-
-    let finalLength = 0
-    const processedChannels = []
+    // Prepare processed segments
+    const segments = []
 
     for (let i = 0; i < audioBuffers.length; i++) {
       const buffer = audioBuffers[i]
@@ -247,78 +242,59 @@ export default async function mixSongs(audioBuffers) {
 
       const [fadeInTime, fadeOutTime] = songMixPoints[i]
 
+      // Apply fade in
       if (fadeInTime !== null) {
-        const fadeInStartSample = Math.floor(fadeInTime * sampleRate)
-        for (let j = 0; j < fadeInSamples && fadeInStartSample + j < processedData.length; j++) {
-          processedData[fadeInStartSample + j] *= j / fadeInSamples
+        const start = Math.floor(fadeInTime * sampleRate)
+        for (let j = 0; j < fadeInSamples && start + j < processedData.length; j++) {
+          processedData[start + j] *= j / fadeInSamples
         }
       }
 
+      // Apply fade out
       if (fadeOutTime !== null) {
-        const fadeOutStartSample = Math.floor(fadeOutTime * sampleRate)
-        for (let j = 0; j < fadeOutSamples && fadeOutStartSample + j < processedData.length; j++) {
-          processedData[fadeOutStartSample + j] *= 1 - j / fadeOutSamples
+        const start = Math.floor(fadeOutTime * sampleRate)
+        for (let j = 0; j < fadeOutSamples && start + j < processedData.length; j++) {
+          processedData[start + j] *= 1 - j / fadeOutSamples
         }
       }
 
-      processedChannels.push(processedData)
-
+      // Determine segment bounds
       let segmentStart = 0
-      let segmentEnd = buffer.length
+      let segmentEnd = processedData.length
 
       if (fadeInTime !== null) {
         segmentStart = Math.floor(fadeInTime * sampleRate)
       }
 
       if (fadeOutTime !== null && i < audioBuffers.length - 1) {
-        segmentEnd = Math.min(buffer.length, Math.floor(fadeOutTime * sampleRate) + fadeOutSamples)
+        segmentEnd = Math.min(processedData.length, Math.floor(fadeOutTime * sampleRate) + fadeOutSamples)
       }
 
-      finalLength += segmentEnd - segmentStart
-
-      if (i < audioBuffers.length - 1 && fadeOutTime !== null) {
-        finalLength -= fadeOutSamples
+      if (segmentEnd > segmentStart) {
+        segments.push(processedData.subarray(segmentStart, segmentEnd))
       }
     }
 
-    const mixedChannel = new Float32Array(finalLength)
+    // Concatenate segments
+    const totalLength = segments.reduce((sum, seg) => sum + seg.length, 0)
+    const mixedChannel = new Float32Array(totalLength)
+
     let offset = 0
-
-    for (let i = 0; i < processedChannels.length; i++) {
-      const currentData = processedChannels[i]
-      let segmentStart = 0
-      let segmentEnd = currentData.length
-
-      if (i === 0 && songMixPoints[i][0] !== null) {
-        segmentStart = Math.floor(songMixPoints[i][0] * sampleRate)
-      }
-
-      if (i < audioBuffers.length - 1 && songMixPoints[i][1] !== null) {
-        segmentEnd = Math.min(currentData.length, Math.floor(songMixPoints[i][1] * sampleRate) + fadeOutSamples)
-      }
-
-      // Avoid negative lengths or invalid segments
-      if (segmentEnd <= segmentStart) continue
-
-      mixedChannel.set(currentData.subarray(segmentStart, segmentEnd), offset)
-      offset += segmentEnd - segmentStart
-
-      if (i < audioBuffers.length - 1 && songMixPoints[i][1] !== null) {
-        offset -= fadeOutSamples
-      }
+    for (const seg of segments) {
+      mixedChannel.set(seg, offset)
+      offset += seg.length
     }
 
-    // Convert Float32Array samples [-1, 1] to Int16 for lamejs encoder
+    // Encode to MP3
     const mp3encoder = new lamejs.Mp3Encoder(1, sampleRate, 128)
-    const sampleBlockSize = 1152
     const mp3Data = []
+    const sampleBlockSize = 1152
 
     for (let i = 0; i < mixedChannel.length; i += sampleBlockSize) {
       const sampleChunk = mixedChannel.subarray(i, i + sampleBlockSize)
       const samples16bit = new Int16Array(sampleChunk.length)
 
       for (let j = 0; j < sampleChunk.length; j++) {
-        // Clamp and convert to 16-bit PCM
         const s = Math.max(-1, Math.min(1, sampleChunk[j]))
         samples16bit[j] = s < 0 ? s * 0x8000 : s * 0x7FFF
       }
@@ -334,9 +310,9 @@ export default async function mixSongs(audioBuffers) {
       mp3Data.push(new Uint8Array(mp3buf))
     }
 
-    // Concatenate all mp3 chunks into a single Uint8Array
-    const totalLength = mp3Data.reduce((sum, arr) => sum + arr.length, 0)
-    const mp3BlobArray = new Uint8Array(totalLength)
+    // Combine mp3 chunks
+    const totalMp3Length = mp3Data.reduce((sum, arr) => sum + arr.length, 0)
+    const mp3BlobArray = new Uint8Array(totalMp3Length)
     let mp3Offset = 0
 
     for (const chunk of mp3Data) {
@@ -344,8 +320,7 @@ export default async function mixSongs(audioBuffers) {
       mp3Offset += chunk.length
     }
 
-    const blob = new Blob([mp3BlobArray], { type: "audio/mpeg" })
-    return blob
+    return new Blob([mp3BlobArray], { type: "audio/mpeg" })
 
   } catch (err) {
     console.error("Error while mixing songs:", err)

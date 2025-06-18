@@ -1,14 +1,17 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import StyledButton from "../components/common/StyledButton"
 import LoadingOverlay from "../components/common/LoadingOverlay"
 import ErrorDialog from "../components/common/ErrorDialog"
-import { mixSongs } from "../audioAnalysis/audioAnalysisFunctions"
+import mixSongs from "../audioAnalysis/audioAnalysisFunctions"
 
 export default function Mixer() {
   const [files, setFiles] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState({ visible: false, message: "" })
   const [selectedIndices, setSelectedIndices] = useState([])
+
+  const navigate = useNavigate()
 
   const MAX_FILES = 5
   const MAX_SIZE_BYTES = 50 * 1024 * 1024 // 50MB
@@ -137,7 +140,11 @@ export default function Mixer() {
         return
       }
 
-      await mixSongs(validBuffers)
+      // IMPORTANT: mixSongs now returns the mp3 Blob
+      const mp3Blob = await mixSongs(validBuffers)
+
+      // Navigate to download page passing blob & filename in state
+      navigate("/download", { state: { blob: mp3Blob, fileName: "mixed-song.mp3" } })
     } catch (error) {
       console.error("Error during mixing:", error)
       showError("There was an issue processing the files. Please try again.")
@@ -148,15 +155,25 @@ export default function Mixer() {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen items-start lg:items-center justify-center bg-gray-100 p-4 sm:p-6 gap-6">
+    <div
+      className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)] items-start lg:items-center justify-center bg-gray-100 p-4 sm:p-6 gap-6"
+    >
       {/* File Upload Section */}
-      <section className="w-full lg:w-1/2 bg-white p-5 sm:p-6 rounded-xl shadow-md" aria-label="File upload section">
-        <h2 className="text-xl sm:text-2xl font-semibold mb-4">Upload Your Songs</h2>
+      <section
+        className="w-full lg:w-1/2 bg-white p-5 sm:p-6 rounded-xl shadow-md"
+        aria-label="File upload section"
+      >
+        <h2 className="text-xl sm:text-2xl text-center font-semibold mb-4">
+          Upload Your Songs
+        </h2>
 
         <div
           className="border-2 border-dashed border-gray-300 p-5 sm:p-6 rounded-lg bg-gray-50 text-center cursor-pointer"
           onClick={() => document.getElementById("fileInput").click()}
-          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && document.getElementById("fileInput").click()}
+          onKeyDown={(e) =>
+            (e.key === "Enter" || e.key === " ") &&
+            document.getElementById("fileInput").click()
+          }
           role="button"
           tabIndex={0}
         >
@@ -169,7 +186,8 @@ export default function Mixer() {
             id="fileInput"
           />
           <p className="text-gray-600">
-            Tap to <span className="text-blue-500 underline">browse</span> or drag & drop your MP3s
+            Tap to <span className="text-blue-500 underline">browse</span> or drag
+            & drop your MP3s
           </p>
         </div>
 
@@ -181,7 +199,10 @@ export default function Mixer() {
 
         <ul className="mt-4 divide-y text-sm text-gray-700">
           {files.map((file, index) => (
-            <li key={file.name + index} className="py-2 flex justify-between items-center">
+            <li
+              key={file.name + index}
+              className="py-2 flex justify-between items-center"
+            >
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -204,7 +225,9 @@ export default function Mixer() {
       </section>
 
       {/* Instructions and Actions Section */}
-      <section className="w-full lg:w-1/3 bg-white p-5 sm:p-6 rounded-xl shadow-md flex flex-col items-center text-center">
+      <section
+        className="w-full lg:w-1/3 bg-white p-5 sm:p-6 rounded-xl shadow-md flex flex-col items-center text-center"
+      >
         <h3 className="text-lg sm:text-xl font-semibold mb-4">Instructions</h3>
         <ol className="text-sm text-gray-600 list-decimal pl-5 text-left w-full max-w-xs">
           <li>Upload up to {MAX_FILES} MP3 files (max 50MB each).</li>
@@ -229,8 +252,8 @@ export default function Mixer() {
         </div>
       </section>
 
-      {/* Loading and Error UI */}
       <LoadingOverlay isLoading={isLoading} />
+
       {error.visible && <ErrorDialog message={error.message} onClose={clearError} />}
     </div>
   )
