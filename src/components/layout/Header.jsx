@@ -24,7 +24,7 @@ function Header() {
             to="/"
             className="text-2xl font-bold tracking-tight hover:text-pink-400"
           >
-            My Mixer
+            Auto DJ Mixer
           </Link>
         </div>
 
