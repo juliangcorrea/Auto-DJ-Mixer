@@ -27,17 +27,6 @@ function Header() {
             Auto DJ Mixer
           </Link>
         </div>
-
-        {/* Hamburger Button (Mobile only) */}
-        <button
-          className="md:hidden text-2xl focus:outline-none focus:ring-0 rounded"
-          onClick={toggleMenu}
-          aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={isMenuOpen}
-          aria-controls="mobile-menu"
-        >
-          ☰
-        </button>
       </div>
     </header>
   )

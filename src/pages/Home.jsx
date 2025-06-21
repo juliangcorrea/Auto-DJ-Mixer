@@ -35,57 +35,37 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Contact Section */}
+      {/* About Section */}
       <section
         className="w-full flex flex-col justify-center items-center text-center bg-black text-white px-4 py-12"
-        aria-label="Contact information"
+        aria-label="About this site"
       >
-        <h2 className="text-2xl sm:text-3xl font-bold mb-4">Get in Touch</h2>
-        <p className="mb-2">
-          Email:{" "}
-          <a
-            href="mailto:example@email.com"
-            className="underline hover:text-pink-400 focus:outline-none focus:ring-2 focus:ring-pink-400 rounded"
-          >
-            example@email.com
-          </a>
-        </p>
-        <p className="mb-4">
-          Phone:{" "}
-          <a
-            href="tel:+1234567890"
-            className="underline hover:text-pink-400 focus:outline-none focus:ring-2 focus:ring-pink-400 rounded"
-          >
-            +123 456 7890
-          </a>
+        <h2 className="text-2xl sm:text-3xl font-bold mb-4">About This Project</h2>
+        <p className="max-w-2xl text-gray-300 mb-6">
+          Auto DJ Mixer lets you upload up to 5 MP3 tracks, analyzes them to find the perfect mix points, and generates smooth transitions automatically. Powered by advanced audio analysis and mixing algorithms, it’s designed for creators who want effortless, high-quality mixes without manual editing.
         </p>
         <div className="flex flex-col sm:flex-row gap-6 mb-6 justify-center items-center">
           <a
-            href="https://github.com/sampleuser"
+            href="https://github.com/juliangcorrea"
             className="flex items-center text-xl hover:text-pink-400 focus:outline-none focus:ring-2 focus:ring-pink-400 rounded"
             aria-label="GitHub profile"
             target="_blank"
             rel="noopener noreferrer"
           >
             <FaGithub />
-            <span className="ml-2">GitHub - sampleuser</span>
+            <span className="ml-2">GitHub - Julian Correa</span>
           </a>
           <a
-            href="https://linkedin.com/in/sampleuser"
+            href="https://www.linkedin.com/in/juliancorrea4/"
             className="flex items-center text-xl hover:text-pink-400 focus:outline-none focus:ring-2 focus:ring-pink-400 rounded"
             aria-label="LinkedIn profile"
             target="_blank"
             rel="noopener noreferrer"
           >
             <FaLinkedin />
-            <span className="ml-2">LinkedIn - sampleuser</span>
+            <span className="ml-2">LinkedIn - Julian Correa</span>
           </a>
         </div>
-        <StyledLink
-          to="/mixer"
-          text="Try it now"
-          className="bg-pink-600 hover:bg-pink-700 focus:ring-4 focus:ring-pink-300 text-white font-semibold py-2 px-6 rounded transition-colors duration-200"
-        />
       </section>
     </div>
   );
